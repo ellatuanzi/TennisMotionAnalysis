@@ -2734,6 +2734,9 @@ function saveCurrentPoseCorrection(source = "userAnchor", options = {}) {
   analysisStageImageCache.clear();
   poseCorrectionSources.set(frame, finalSource);
   if (finalSource !== "tracked") {
+    updateNearestKeyframeImageForFrame(frame, poseRuntime.editedPose);
+  }
+  if (finalSource !== "tracked") {
     keypointTrackingReady = false;
     if (options.autoSmooth !== false) {
       scheduleAutoSmoothTrack(`Frame ${frame} corrected. Updating nearby frames.`, frame);
@@ -2744,6 +2747,26 @@ function saveCurrentPoseCorrection(source = "userAnchor", options = {}) {
   invalidateKeypointVideo("Frame corrections changed. Render a new review video.");
   if (dom.roiStatus) dom.roiStatus.textContent = `Frame ${frame} correction saved.`;
   updateWorkflow();
+}
+
+function updateNearestKeyframeImageForFrame(frame, pose) {
+  if (!keyframes.length || !Number.isFinite(frame)) return false;
+  const fps = Math.max(1, Number(dom.fpsInput?.value || 60));
+  const tolerance = Math.max(3, Math.round(fps * 0.1));
+  const nearest = keyframes
+    .map((keyframe, index) => ({
+      index,
+      distance: Math.abs(keyframeToFrameIndex(keyframe) - frame),
+    }))
+    .sort((a, b) => a.distance - b.distance)[0];
+  if (!nearest || nearest.distance > tolerance) return false;
+
+  keyframes[nearest.index].image = captureAnalysisFrame(clonePose(pose))
+    || keyframes[nearest.index].image
+    || fallbackStageSnapshotForStage(keyframes[nearest.index]);
+  selectedKeyframeIndex = nearest.index;
+  renderKeyframes();
+  return true;
 }
 
 function syncRacketBoxControls() {
@@ -2811,16 +2834,7 @@ async function saveKeyframeAnchor() {
   keypointVideoReady = false;
   motionAnalysisReady = false;
 
-  const nearestIndex = keyframes
-    .map((keyframe, index) => ({ index, distance: Math.abs(frameIndexForTime(keyframe.time) - frame) }))
-    .sort((a, b) => a.distance - b.distance)[0];
-  if (nearestIndex && nearestIndex.distance <= 3) {
-    keyframes[nearestIndex.index].image = captureAnalysisFrame(clonePose(poseRuntime.editedPose))
-      || keyframes[nearestIndex.index].image
-      || fallbackStageSnapshotForStage(keyframes[nearestIndex.index]);
-    selectedKeyframeIndex = nearestIndex.index;
-    renderKeyframes();
-  }
+  updateNearestKeyframeImageForFrame(frame, poseRuntime.editedPose);
 
   scheduleAutoSmoothTrack(`Key frame anchor saved at frame ${frame}. Updating nearby frames.`, frame);
   dom.roiStatus.textContent = `Key frame anchor saved at frame ${frame}. Nearby frames will update automatically.`;
@@ -4247,13 +4261,35 @@ function fallbackStageSnapshotForStage(stage) {
     || "";
 }
 
+function isEditedAnchorSource(source) {
+  return Boolean(source) && source !== "defaultAnchor" && source !== "tracked";
+}
+
+function editedAnchorFrameForStage(stage, match = keyframeForStage(stage)) {
+  if (!match) return null;
+  const targetFrame = clampFrameIndex(keyframeToFrameIndex(match), dom.childVideo);
+  const fps = Math.max(1, Number(dom.fpsInput?.value || 60));
+  const tolerance = Math.max(3, Math.round(fps * 0.1));
+  const candidate = Array.from(poseCorrectionSources.entries())
+    .filter(([, source]) => isEditedAnchorSource(source))
+    .map(([frame, source]) => ({
+      frame,
+      source,
+      distance: Math.abs(frame - targetFrame),
+    }))
+    .filter((item) => item.distance <= tolerance)
+    .sort((a, b) => a.distance - b.distance || a.frame - b.frame)[0];
+  return candidate?.frame ?? null;
+}
+
 function keyframeImageForStage(stage) {
   const match = keyframeForStage(stage);
-  const frameIndex = match ? clampFrameIndex(keyframeToFrameIndex(match), dom.childVideo) : null;
-  const frameImage = Number.isFinite(frameIndex) ? analysisStageImageCache.get(frameIndex) : "";
+  const defaultFrame = match ? clampFrameIndex(keyframeToFrameIndex(match), dom.childVideo) : null;
+  const editedFrame = editedAnchorFrameForStage(stage, match);
+  const displayFrame = editedFrame ?? defaultFrame;
+  const frameImage = Number.isFinite(displayFrame) ? analysisStageImageCache.get(displayFrame) : "";
   const stageImage = analysisStageImageCache.get(stageImageCacheKey(stage));
-  const source = Number.isFinite(frameIndex) ? poseCorrectionSources.get(frameIndex) : null;
-  const hasEditedKeypoints = source && source !== "defaultAnchor" && source !== "tracked";
+  const hasEditedKeypoints = Number.isFinite(editedFrame);
 
   if (hasEditedKeypoints) {
     return frameImage
@@ -5365,8 +5401,10 @@ async function refreshAnalysisStageImages() {
     const match = keyframeForStage(stage);
     if (!match) continue;
 
-    const frameIndex = clampFrameIndex(keyframeToFrameIndex(match), video);
-    const time = Number.isFinite(Number(match.time)) ? Number(match.time) : frameIndex / fps;
+    const defaultFrame = clampFrameIndex(keyframeToFrameIndex(match), video);
+    const editedFrame = editedAnchorFrameForStage(stage, match);
+    const frameIndex = Number.isFinite(editedFrame) ? editedFrame : defaultFrame;
+    const time = frameIndex / fps;
     try {
       await seekVideoToTime(video, time, 1800);
       const pose = correctionForFrameIndex(frameIndex)
