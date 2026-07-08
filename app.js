@@ -1,5 +1,6 @@
 const dom = {
   childVideoInput: document.querySelector("#childVideoInput"),
+  playerVideoSourceUrl: document.querySelector("#playerVideoSourceUrl"),
   standardVideoInput: document.querySelector("#standardVideoInput"),
   childFileName: document.querySelector("#childFileName"),
   standardFileName: document.querySelector("#standardFileName"),
@@ -635,6 +636,7 @@ function loadVideo(input, video, fileNameNode, emptyNode) {
   if (video === dom.childVideo) {
     activeProgressSessionId = null;
     currentPlayerVideoFile = file;
+    if (dom.playerVideoSourceUrl) dom.playerVideoSourceUrl.value = "";
     if (dom.videoSessionStatus) {
       dom.videoSessionStatus.textContent = "New video loaded. Save it to compare progress later.";
     }
@@ -4870,6 +4872,7 @@ async function saveVideoSession() {
     status: motionAnalysisReady ? "analysis" : "video",
     file: fileName,
     videoName: fileName,
+    rawVideoUrl: dom.playerVideoSourceUrl?.value.trim() || "",
     stroke: dom.strokeType.value,
     dominantHand: dom.dominantHand.value,
     age: dom.playerAge.value,
@@ -5042,6 +5045,7 @@ async function saveProgressSession() {
     status: "analysis",
     file: dom.childFileName.textContent,
     videoName: dom.childFileName.textContent,
+    rawVideoUrl: dom.playerVideoSourceUrl?.value.trim() || "",
     stroke: dom.strokeType.value,
     dominantHand: dom.dominantHand.value,
     age: dom.playerAge.value,
@@ -5177,7 +5181,7 @@ function analysisDiaryEntry(options = {}) {
     title: `${fileName} · ${strokeText} analysis`,
     stroke: dom.strokeType.value,
     videoUrl: "",
-    rawVideoUrl: "",
+    rawVideoUrl: dom.playerVideoSourceUrl?.value.trim() || "",
     videoName: fileName,
     keyframes: keyframeEntries,
     coach: stages.map((stage) => `${stageShortName(stage.name)}: ${stage.coachComment}`).join("\n"),
@@ -5263,6 +5267,9 @@ function draftPayload() {
     savedAt: new Date().toISOString(),
     fileName: dom.childFileName.textContent,
     roi: { confirmed: roiRuntime.confirmed, crop: { ...roiRuntime.crop } },
+    playerVideo: {
+      sourceUrl: dom.playerVideoSourceUrl?.value.trim() || "",
+    },
     motion: {
       strokeType: dom.strokeType.value,
       dominantHand: dom.dominantHand.value,
@@ -5334,6 +5341,9 @@ function loadDraft() {
       dom.fpsInput.value = draft.motion.fps || dom.fpsInput.value;
       dom.courtDistance.value = draft.motion.courtDistance || dom.courtDistance.value;
       dom.showSkeleton.checked = draft.motion.showSkeleton !== false;
+    }
+    if (draft.playerVideo && dom.playerVideoSourceUrl) {
+      dom.playerVideoSourceUrl.value = draft.playerVideo.sourceUrl || "";
     }
     if (draft.reference) {
       dom.youtubeUrl.value = draft.reference.youtubeUrl || dom.youtubeUrl.value;
@@ -6742,6 +6752,8 @@ dom.useDefaultNotesButton.addEventListener("click", () => {
   input.addEventListener("input", updateNotesPreview);
   input.addEventListener("change", updateNotesPreview);
 });
+dom.playerVideoSourceUrl?.addEventListener("input", updateDraftControls);
+dom.playerVideoSourceUrl?.addEventListener("change", updateDraftControls);
 
 dom.phaseTabs.addEventListener("click", (event) => {
   const button = event.target.closest("button");

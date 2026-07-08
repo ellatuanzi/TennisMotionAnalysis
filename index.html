@@ -55,6 +55,10 @@
               <strong>Player Video</strong>
               <small id="childFileName">Choose video</small>
             </label>
+            <label>
+              Video source link
+              <input id="playerVideoSourceUrl" type="url" placeholder="Google Drive video link for diary raw video" />
+            </label>
             <div class="session-save-row">
               <button class="secondary-action" id="saveVideoSessionButton" type="button">Save Video Session</button>
               <span id="videoSessionStatus">Save this upload for future progress comparison.</span>
@@ -560,6 +564,6 @@
     </dialog>
 
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
-    <script src="./app.js?v=20260708-roi-crop-zoom"></script>
+    <script src="./app.js?v=20260708-video-source-url"></script>
   </body>
 </html>

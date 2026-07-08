@@ -408,8 +408,12 @@ function renderEntries() {
         rawLink.href = rawVideoUrl;
         rawLink.target = "_blank";
         rawLink.rel = "noreferrer";
-        rawLink.textContent = "Download Raw Video";
-        if (isLocalAssetUrl(rawVideoUrl)) rawLink.setAttribute("download", entry.videoName || "raw-training-video");
+        if (isLocalAssetUrl(rawVideoUrl)) {
+          rawLink.textContent = "Download Raw Video";
+          rawLink.setAttribute("download", entry.videoName || "raw-training-video");
+        } else {
+          rawLink.textContent = "Open Raw Video";
+        }
         links.append(rawLink);
         videoWrap.append(links);
       }
