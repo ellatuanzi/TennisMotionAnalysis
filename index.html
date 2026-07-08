@@ -151,14 +151,14 @@
             <div class="keypoint-editor" id="keypointEditor">
               <div class="editor-help">
                 <strong>Keyframe-guided correction</strong>
-                <span>Auto Detect chooses high-confidence default anchors first. Adjust those anchors, add more where needed, and the current frame will always show the latest smoothed result.</span>
+                <span>Auto Detect chooses key-frame images first. In Frame Corrections, use detected points where available, then adjust or place anchors where needed.</span>
               </div>
               <div class="tracking-actions">
                 <button type="button" id="saveKeyframeAnchorButton">Save Key Frame Anchor</button>
                 <button type="button" id="generateTrackedFramesButton">Generate Smooth Track</button>
                 <button type="button" id="saveTrainingSampleButton">Save Training Sample</button>
                 <button class="hidden" type="button" id="suggestedAnchorButton">Fix suggested frame</button>
-                <span id="trackingStatus">Auto Detect creates default anchors; adjust them first.</span>
+                <span id="trackingStatus">Auto Detect creates key-frame images; detect or place anchors in Frame Corrections.</span>
               </div>
               <div class="tracking-quality" id="trackingQualityPanel">
                 <div class="quality-head">
@@ -560,6 +560,6 @@
     </dialog>
 
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
-    <script src="./app.js?v=20260708-raw-keyframe-fallback"></script>
+    <script src="./app.js?v=20260708-no-template-anchors"></script>
   </body>
 </html>

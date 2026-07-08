@@ -550,7 +550,7 @@ function updateWorkflow() {
         ? suggestedAnchorFrame != null
           ? `Long gap between anchors. Start fixing around frame ${suggestedAnchorFrame}.`
           : `${anchorCount} anchor${anchorCount === 1 ? "" : "s"} saved. Adjust anchors first, then add more where tracking drifts.`
-        : "Auto Detect creates default anchors; adjust them first.";
+        : "Auto Detect creates key-frame images; detect or place anchors in Frame Corrections.";
   }
   updateTrackingQualityPanel();
 
@@ -2104,6 +2104,7 @@ function seedDefaultAnchorForFrame(frame, source = "defaultAnchor", poseOverride
 function seedDefaultAnchorFramesFromKeyframes() {
   let created = 0;
   keyframes.forEach((keyframe) => {
+    if (keyframe.poseSource === "fallbackTemplate") return;
     const frame = keyframeToFrameIndex(keyframe);
     if (seedDefaultAnchorForFrame(frame, "defaultAnchor", keyframe.pose)) created += 1;
   });
@@ -2685,10 +2686,12 @@ function applyCurrentFrameRacketDetection(pose, frameIndex = currentFrameIndex(d
 
 function currentFramePose() {
   const frame = currentFrameIndex(dom.childVideo);
+  const sourcePose = correctionForVideoTime()
+    || poseRuntime.childPose
+    || (poseRuntime.editMode ? null : createPose(dom.childVideo, 0));
+  if (!sourcePose) return {};
   const basePose = clonePose(
-    correctionForVideoTime()
-      || poseRuntime.childPose
-      || createPose(dom.childVideo, 0),
+    sourcePose,
   );
   const trackedPose = addTrackedObjects(applyCurrentFrameRacketDetection(basePose, frame));
   return applyBallAnchorStart(trackedPose, frame);
@@ -3560,6 +3563,7 @@ async function stepEditFrame(direction) {
     dom.childVideo.duration,
   );
   await waitForVideoSeek(dom.childVideo);
+  await detectChildPose(dom.childVideo, { force: true }).catch(() => {});
   refreshEditablePoseFromFrame();
   refreshRacketDetectionForCurrentEditFrame();
   syncFrameScrubber();
@@ -3615,6 +3619,7 @@ async function goToFrameForCorrection(frameNumber, message = "") {
   dom.childVideo.pause();
   dom.childVideo.currentTime = clamp(safeFrame / fps, 0, dom.childVideo.duration);
   await waitForVideoSeek(dom.childVideo);
+  await detectChildPose(dom.childVideo, { force: true }).catch(() => {});
   refreshEditablePoseFromFrame();
   refreshRacketDetectionForCurrentEditFrame();
   syncFrameScrubber();
@@ -3851,6 +3856,25 @@ function addTrackedObjects(sourcePose) {
   return addBallDetection(addRacketDetection(sourcePose));
 }
 
+function bodyKeypointCount(pose) {
+  const names = [
+    "head",
+    "leftShoulder",
+    "rightShoulder",
+    "leftElbow",
+    "rightElbow",
+    "leftWrist",
+    "rightWrist",
+    "leftHip",
+    "rightHip",
+    "leftKnee",
+    "rightKnee",
+    "leftAnkle",
+    "rightAnkle",
+  ];
+  return names.filter((name) => Array.isArray(pose?.[name]) && !isKeypointHidden(pose, name)).length;
+}
+
 function createPose(video, seedOffset = 0) {
   return createPoseForTime(video, video.currentTime || 0, seedOffset);
 }
@@ -3985,7 +4009,7 @@ function drawPose(canvas, video, seedOffset, color, options = {}) {
     ctx.clip();
   }
 
-  if (video === dom.childVideo) {
+  if (video === dom.childVideo && bodyKeypointCount(pose) >= 4) {
     const box = playerFrameBox(getPosePersonBox(pose), video, rect, { cropTargetRatio });
     ctx.save();
     ctx.shadowBlur = 0;
@@ -5762,6 +5786,7 @@ async function fallbackKeyframeCardsForStages(frames) {
         || fallbackRawStageSnapshotForStage({ phase: frame.phase })
         || fallbackStageSnapshotForStage({ phase: frame.phase }),
       pose,
+      poseSource: "fallbackTemplate",
     });
   }
   return cards;
@@ -6069,7 +6094,9 @@ async function detectKeyframes() {
     const defaultAnchorCount = seedDefaultAnchorFramesFromKeyframes();
     renderKeyframes();
     dom.keyframeStatus.textContent = `${keyframes.length} key frames generated`;
-    dom.roiStatus.textContent = `${defaultAnchorCount} default anchor frames are ready. Choose a correction path to continue.`;
+    dom.roiStatus.textContent = defaultAnchorCount
+      ? `${defaultAnchorCount} default anchor frames are ready. Choose a correction path to continue.`
+      : "Key-frame images are ready. Open Frame Corrections to detect or place keypoints on each frame.";
     workflowStepOverride = "frames";
     drawPoseLoop();
     window.setTimeout(() => {
