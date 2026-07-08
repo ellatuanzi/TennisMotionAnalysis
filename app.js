@@ -1204,12 +1204,49 @@ function getVideoViewport(video, rect) {
   };
 }
 
+function cropFocusBoxForPose(pose) {
+  if (!pose) return null;
+  const points = Object.entries(pose)
+    .filter(([name, value]) => Array.isArray(value) && !isKeypointHidden(pose, name) && name !== "ball")
+    .flatMap(([name, value]) => {
+      if (!name.startsWith("racket")) return [value];
+      return name === "racketBox" ? [] : [value];
+    });
+
+  const racketBox = pose.racketBox ? normalizeRacketBox(pose.racketBox) : null;
+  if (racketBox) {
+    points.push(
+      [racketBox.cx - racketBox.width / 2, racketBox.cy - racketBox.height / 2],
+      [racketBox.cx + racketBox.width / 2, racketBox.cy + racketBox.height / 2],
+    );
+  }
+
+  if (points.length < 3) return null;
+  const xs = points.map((point) => clamp(point[0], 0, 1));
+  const ys = points.map((point) => clamp(point[1], 0, 1));
+  const minX = Math.min(...xs);
+  const maxX = Math.max(...xs);
+  const minY = Math.min(...ys);
+  const maxY = Math.max(...ys);
+  return {
+    x: minX,
+    y: minY,
+    width: Math.max(0.04, maxX - minX),
+    height: Math.max(0.08, maxY - minY),
+  };
+}
+
 function getPlayerCropSource(video, options = {}) {
   const videoWidth = video.videoWidth || 1;
   const videoHeight = video.videoHeight || 1;
-  const zoom = roiRuntime.crop.zoom;
-  const centerX = roiRuntime.crop.x;
-  const centerY = roiRuntime.crop.y;
+  const zoomScale = Number.isFinite(options.zoomScale) ? options.zoomScale : 1;
+  const zoom = clamp(roiRuntime.crop.zoom * zoomScale, 1, Number(dom.playerZoom?.max || 5));
+  const focusBox = cropFocusBoxForPose(options.focusPose);
+  const focusStrength = focusBox ? clamp(options.focusStrength ?? 1, 0, 1) : 0;
+  const focusCenterX = focusBox ? focusBox.x + focusBox.width / 2 : roiRuntime.crop.x;
+  const focusCenterY = focusBox ? focusBox.y + focusBox.height / 2 : roiRuntime.crop.y;
+  const centerX = roiRuntime.crop.x * (1 - focusStrength) + focusCenterX * focusStrength;
+  const centerY = roiRuntime.crop.y * (1 - focusStrength) + focusCenterY * focusStrength;
   const sourceRatio = videoWidth / videoHeight;
   const targetRatio = Number.isFinite(options.targetRatio)
     ? clamp(options.targetRatio, 0.35, 1.8)
@@ -1223,6 +1260,21 @@ function getPlayerCropSource(video, options = {}) {
   cropWidth = Math.min(videoWidth, cropWidth);
   cropHeight = Math.min(videoHeight, cropHeight);
 
+  if (focusBox && options.fitFocusBox !== false) {
+    const padding = clamp(options.focusPadding ?? 1.28, 1, 1.8);
+    const neededWidth = focusBox.width * videoWidth * padding;
+    const neededHeight = focusBox.height * videoHeight * padding;
+    if (neededWidth / Math.max(1, neededHeight) > targetRatio) {
+      cropWidth = Math.max(cropWidth, neededWidth);
+      cropHeight = Math.max(cropHeight, cropWidth / targetRatio);
+    } else {
+      cropHeight = Math.max(cropHeight, neededHeight);
+      cropWidth = Math.max(cropWidth, cropHeight * targetRatio);
+    }
+    cropWidth = Math.min(videoWidth, cropWidth);
+    cropHeight = Math.min(videoHeight, cropHeight);
+  }
+
   const x = clamp(centerX * videoWidth - cropWidth / 2, 0, videoWidth - cropWidth);
   const y = clamp(centerY * videoHeight - cropHeight / 2, 0, videoHeight - cropHeight);
 
@@ -1232,6 +1284,19 @@ function getPlayerCropSource(video, options = {}) {
     width: cropWidth,
     height: cropHeight,
     sourceRatio,
+  };
+}
+
+function playerDisplayCropOptions(options = {}) {
+  if (options.cropTargetRatio || options.targetRatio || options.zoomScale) return options;
+  if (!poseRuntime.editMode || !roiRuntime.confirmed) return options;
+  const focusPose = options.focusPose || poseRuntime.editedPose || correctionForFrameIndex(currentEditorFrameIndex()) || poseRuntime.childPose;
+  return {
+    ...options,
+    focusPose,
+    focusStrength: 1,
+    focusPadding: 1.36,
+    zoomScale: 0.68,
   };
 }
 
@@ -1276,6 +1341,7 @@ function drawCroppedPlayerVideo(options = {}) {
   const video = dom.childVideo;
   const canvas = options.canvas || dom.childRenderCanvas;
   const rect = options.rect || canvas.getBoundingClientRect();
+  const cropOptions = playerDisplayCropOptions(options);
   const scale = options.scale ?? (window.devicePixelRatio || 1);
   if (!options.rect && rect.width > 40 && rect.height > 40) {
     lastPlayerPreviewRatio = clamp(rect.width / rect.height, 0.35, 1.8);
@@ -1298,7 +1364,7 @@ function drawCroppedPlayerVideo(options = {}) {
       return true;
     }
 
-    const crop = getPlayerCropSource(video, { targetRatio: cropTargetRatioForRect(rect, options) });
+    const crop = getPlayerCropSource(video, { ...cropOptions, targetRatio: cropTargetRatioForRect(rect, cropOptions) });
     const viewport = getPlayerRenderViewport(rect, crop);
     ctx.drawImage(video, crop.x, crop.y, crop.width, crop.height, viewport.x, viewport.y, viewport.width, viewport.height);
     return true;
@@ -1308,7 +1374,8 @@ function drawCroppedPlayerVideo(options = {}) {
 }
 
 function sourceToPlayerFrame(point, video, rect, options = {}) {
-  const crop = getPlayerCropSource(video, { targetRatio: cropTargetRatioForRect(rect, options) });
+  const cropOptions = playerDisplayCropOptions(options);
+  const crop = getPlayerCropSource(video, { ...cropOptions, targetRatio: cropTargetRatioForRect(rect, cropOptions) });
   const viewport = getPlayerRenderViewport(rect, crop);
   const sourceX = point[0] * (video.videoWidth || 1);
   const sourceY = point[1] * (video.videoHeight || 1);
@@ -1318,8 +1385,9 @@ function sourceToPlayerFrame(point, video, rect, options = {}) {
   ];
 }
 
-function playerFrameToPoseSource(point, video, rect) {
-  const crop = getPlayerCropSource(video, { targetRatio: cropTargetRatioForRect(rect) });
+function playerFrameToPoseSource(point, video, rect, options = {}) {
+  const cropOptions = playerDisplayCropOptions(options);
+  const crop = getPlayerCropSource(video, { ...cropOptions, targetRatio: cropTargetRatioForRect(rect, cropOptions) });
   const viewport = getPlayerRenderViewport(rect, crop);
   const sourceX = crop.x + ((point.x - viewport.x) / viewport.width) * crop.width;
   const sourceY = crop.y + ((point.y - viewport.y) / viewport.height) * crop.height;
@@ -1330,7 +1398,8 @@ function playerFrameToPoseSource(point, video, rect) {
 }
 
 function sourceLengthToFrame(length, video, rect, axis = "x", options = {}) {
-  const crop = getPlayerCropSource(video, { targetRatio: cropTargetRatioForRect(rect, options) });
+  const cropOptions = playerDisplayCropOptions(options);
+  const crop = getPlayerCropSource(video, { ...cropOptions, targetRatio: cropTargetRatioForRect(rect, cropOptions) });
   const viewport = getPlayerRenderViewport(rect, crop);
   const sourceSize = axis === "y" ? video.videoHeight || 1 : video.videoWidth || 1;
   const viewportSize = axis === "y" ? viewport.height : viewport.width;
@@ -1338,8 +1407,9 @@ function sourceLengthToFrame(length, video, rect, axis = "x", options = {}) {
   return (length * sourceSize / cropSize) * viewportSize;
 }
 
-function frameLengthToSource(length, video, rect, axis = "x") {
-  const crop = getPlayerCropSource(video, { targetRatio: cropTargetRatioForRect(rect) });
+function frameLengthToSource(length, video, rect, axis = "x", options = {}) {
+  const cropOptions = playerDisplayCropOptions(options);
+  const crop = getPlayerCropSource(video, { ...cropOptions, targetRatio: cropTargetRatioForRect(rect, cropOptions) });
   const viewport = getPlayerRenderViewport(rect, crop);
   const sourceSize = axis === "y" ? video.videoHeight || 1 : video.videoWidth || 1;
   const viewportSize = axis === "y" ? viewport.height : viewport.width;
@@ -3926,7 +3996,6 @@ function createPose(video, seedOffset = 0) {
 function drawPose(canvas, video, seedOffset, color, options = {}) {
   const rect = options.rect || canvas.getBoundingClientRect();
   const scale = options.scale ?? (window.devicePixelRatio || 1);
-  const cropTargetRatio = options.cropTargetRatio;
   canvas.width = Math.max(1, Math.floor(rect.width * scale));
   canvas.height = Math.max(1, Math.floor(rect.height * scale));
 
@@ -3975,6 +4044,13 @@ function drawPose(canvas, video, seedOffset, color, options = {}) {
   const pose = addTrackedObjects(video === dom.childVideo
     ? applyCurrentFrameRacketDetection(childPoseForDisplay, displayFrame)
     : createPose(video, seedOffset));
+  const cropOptions = video === dom.childVideo
+    ? playerDisplayCropOptions({
+        ...options,
+        focusPose: options.focusPose || (poseRuntime.editMode ? pose : null),
+      })
+    : options;
+  const cropTargetRatio = cropOptions.cropTargetRatio;
   if (video === dom.childVideo) {
     dom.childPoseScore.textContent = poseRuntime.editMode
       ? "Editing keypoints"
@@ -3988,7 +4064,7 @@ function drawPose(canvas, video, seedOffset, color, options = {}) {
   const viewport = video === dom.childVideo
     ? { x: 0, y: 0, width: rect.width, height: rect.height }
     : getVideoViewport(video, rect);
-  const childCrop = video === dom.childVideo ? getPlayerCropSource(video, { targetRatio: cropTargetRatioForRect(rect, options) }) : null;
+  const childCrop = video === dom.childVideo ? getPlayerCropSource(video, { ...cropOptions, targetRatio: cropTargetRatioForRect(rect, cropOptions) }) : null;
   const childRenderViewport = video === dom.childVideo ? getPlayerRenderViewport(rect, childCrop) : null;
   const isPointVisible = (name) => {
     if (!pose[name] || !Array.isArray(pose[name])) return false;
@@ -4001,7 +4077,7 @@ function drawPose(canvas, video, seedOffset, color, options = {}) {
       && sourceY <= childCrop.y + childCrop.height;
   };
   const point = (name) => {
-    if (video === dom.childVideo) return sourceToPlayerFrame(pose[name], video, rect, { cropTargetRatio });
+    if (video === dom.childVideo) return sourceToPlayerFrame(pose[name], video, rect, cropOptions);
     return [
       viewport.x + pose[name][0] * viewport.width,
       viewport.y + pose[name][1] * viewport.height,
@@ -4054,7 +4130,7 @@ function drawPose(canvas, video, seedOffset, color, options = {}) {
   }
 
   if (video === dom.childVideo && bodyKeypointCount(pose) >= 4) {
-    const box = playerFrameBox(getPosePersonBox(pose), video, rect, { cropTargetRatio });
+    const box = playerFrameBox(getPosePersonBox(pose), video, rect, cropOptions);
     ctx.save();
     ctx.shadowBlur = 0;
     ctx.lineWidth = 3;
@@ -4096,7 +4172,7 @@ function drawPose(canvas, video, seedOffset, color, options = {}) {
           && sourceY >= childCrop.y
           && sourceY <= childCrop.y + childCrop.height;
       })
-      .map((trailPose) => sourceToPlayerFrame(trailPose.ball, video, rect, { cropTargetRatio }));
+      .map((trailPose) => sourceToPlayerFrame(trailPose.ball, video, rect, cropOptions));
     if (trailFrames.length > 1) {
       ctx.save();
       ctx.shadowBlur = 0;
@@ -4126,7 +4202,7 @@ function drawPose(canvas, video, seedOffset, color, options = {}) {
     && visualRacketBox.cy * (video.videoHeight || 1) >= childCrop.y
     && visualRacketBox.cy * (video.videoHeight || 1) <= childCrop.y + childCrop.height
   ))) {
-    const handles = racketBoxHandles(visualRacketBox, video, rect, { cropTargetRatio });
+    const handles = racketBoxHandles(visualRacketBox, video, rect, cropOptions);
     const { frameBox } = handles;
     const handName = racketHandName(pose);
     if (handName && pose[handName] && !isKeypointHidden(pose, handName)) {
@@ -4152,7 +4228,7 @@ function drawPose(canvas, video, seedOffset, color, options = {}) {
 
     if (video === dom.childVideo && poseRuntime.editMode && dom.showRacketMask?.checked) {
       requestRacketSegmentationForCurrentFrame();
-      drawRacketSegmentation(ctx, racketSegmentation, video, rect, { cropTargetRatio });
+      drawRacketSegmentation(ctx, racketSegmentation, video, rect, cropOptions);
     }
 
     ctx.save();
@@ -5519,9 +5595,20 @@ function nextPaint(timeoutMs = 250) {
   });
 }
 
+function keyframePreviewCropOptions(pose = null, options = {}) {
+  return {
+    ...options,
+    focusPose: pose,
+    focusStrength: pose ? 1 : 0,
+    focusPadding: 1.42,
+    zoomScale: 0.62,
+  };
+}
+
 function captureAnalysisFrame(poseOverride = null) {
-  drawCroppedPlayerVideo();
-  drawPose(dom.childCanvas, dom.childVideo, 0, "#4be193", { forceDraw: true, poseOverride });
+  const cropOptions = keyframePreviewCropOptions(poseOverride);
+  drawCroppedPlayerVideo(cropOptions);
+  drawPose(dom.childCanvas, dom.childVideo, 0, "#4be193", { ...cropOptions, forceDraw: true, poseOverride });
 
   const base = dom.childRenderCanvas;
   const overlay = dom.childCanvas;
@@ -5541,6 +5628,7 @@ function captureRawKeyframeImage() {
   const width = rect.width > 40 ? Math.round(rect.width) : 960;
   const height = rect.height > 40 ? Math.round(rect.height) : 540;
   drawCroppedPlayerVideo({
+    ...keyframePreviewCropOptions(),
     canvas,
     rect: { x: 0, y: 0, width, height },
     scale: 1,
