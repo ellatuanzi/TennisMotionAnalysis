@@ -172,6 +172,17 @@ const defaultCoachingNotes = `ATTICUS CAI -- Serve Progression checkpoints:
 - Stage 7 Deceleration: leg drive should not peak late; energy should transfer legs to hips to trunk to arm to racket in sequence.
 - Stage 8 Finish: land with a soft front knee and balanced finish; avoid a stiff-legged landing.`;
 
+const fallbackStageSnapshots = {
+  setup: "exports/diary-poc-keypoints/keypoint-overlays/01-setup-keypoints.jpg",
+  toss: "exports/diary-poc-keypoints/keypoint-overlays/02-toss-keypoints.jpg",
+  load: "exports/diary-poc-keypoints/keypoint-overlays/03-load-keypoints.jpg",
+  drop: "exports/diary-poc-keypoints/keypoint-overlays/04-racket-drop-keypoints.jpg",
+  acceleration: "exports/diary-poc-keypoints/keypoint-overlays/05-acceleration-keypoints.jpg",
+  contact: "exports/diary-poc-keypoints/keypoint-overlays/06-contact-keypoints.jpg",
+  deceleration: "exports/diary-poc-keypoints/keypoint-overlays/07-deceleration-keypoints.jpg",
+  finish: "exports/diary-poc-keypoints/keypoint-overlays/08-finish-keypoints.jpg",
+};
+
 const progressStorageKey = "tennisMotionLab.serveProgress.v1";
 const diaryStorageKey = "tennisMotionLab.trainingDiary.v2";
 const draftStorageKey = "tennisMotionLab.motionDraft.v1";
@@ -2804,7 +2815,9 @@ async function saveKeyframeAnchor() {
     .map((keyframe, index) => ({ index, distance: Math.abs(frameIndexForTime(keyframe.time) - frame) }))
     .sort((a, b) => a.distance - b.distance)[0];
   if (nearestIndex && nearestIndex.distance <= 3) {
-    keyframes[nearestIndex.index].image = captureAnalysisFrame(clonePose(poseRuntime.editedPose));
+    keyframes[nearestIndex.index].image = captureAnalysisFrame(clonePose(poseRuntime.editedPose))
+      || keyframes[nearestIndex.index].image
+      || fallbackStageSnapshotForStage(keyframes[nearestIndex.index]);
     selectedKeyframeIndex = nearestIndex.index;
     renderKeyframes();
   }
@@ -4228,12 +4241,19 @@ function stageImageCacheKey(stage) {
   return normalizeStageName(stage.name || stage.phase || stage.id);
 }
 
+function fallbackStageSnapshotForStage(stage) {
+  return fallbackStageSnapshots[stage?.id]
+    || fallbackStageSnapshots[normalizeStageName(stage?.phase || stage?.name)]
+    || "";
+}
+
 function keyframeImageForStage(stage) {
   const match = keyframeForStage(stage);
   const frameIndex = match ? clampFrameIndex(keyframeToFrameIndex(match), dom.childVideo) : null;
-  return (Number.isFinite(frameIndex) ? analysisStageImageCache.get(frameIndex) : "")
+  return match?.image
+    || (Number.isFinite(frameIndex) ? analysisStageImageCache.get(frameIndex) : "")
     || analysisStageImageCache.get(stageImageCacheKey(stage))
-    || match?.image
+    || fallbackStageSnapshotForStage(stage)
     || "";
 }
 
@@ -5278,7 +5298,41 @@ function captureAnalysisFrame(poseOverride = null) {
   const ctx = output.getContext("2d");
   ctx.drawImage(base, 0, 0);
   ctx.drawImage(overlay, 0, 0);
+  if (canvasLooksBlank(output)) return "";
   return output.toDataURL("image/jpeg", 0.86);
+}
+
+function canvasLooksBlank(canvas) {
+  const width = canvas?.width || 0;
+  const height = canvas?.height || 0;
+  if (width < 2 || height < 2) return true;
+
+  const context = canvas.getContext("2d", { willReadFrequently: true });
+  if (!context) return false;
+  const stepX = Math.max(1, Math.floor(width / 80));
+  const stepY = Math.max(1, Math.floor(height / 80));
+  let sampled = 0;
+  let informative = 0;
+
+  try {
+    const pixels = context.getImageData(0, 0, width, height).data;
+    for (let y = 0; y < height; y += stepY) {
+      for (let x = 0; x < width; x += stepX) {
+        const index = (y * width + x) * 4;
+        const red = pixels[index];
+        const green = pixels[index + 1];
+        const blue = pixels[index + 2];
+        const lum = red + green + blue;
+        const spread = Math.max(red, green, blue) - Math.min(red, green, blue);
+        sampled += 1;
+        if (lum > 150 || spread > 34) informative += 1;
+      }
+    }
+  } catch {
+    return false;
+  }
+
+  return sampled > 0 && informative / sampled < 0.015;
 }
 
 async function refreshAnalysisStageImages() {
@@ -5659,13 +5713,14 @@ async function generateKeyframes(data) {
       await detectChildPose(video, { force: true });
       await nextPaint();
       const pose = snapshotDetectedPoseForKeyframe(frameIndex);
+      const image = captureAnalysisFrame(pose) || fallbackStageSnapshotForStage({ phase: frame.phase });
       // Keep a frozen pose + image for this stage. Do not let later playback,
       // smoothing, or editor state redraw every card from the same current frame.
       cards.push({
         ...frame,
         time: actualTime,
         frameIndex,
-        image: captureAnalysisFrame(pose),
+        image,
         pose,
       });
     }
