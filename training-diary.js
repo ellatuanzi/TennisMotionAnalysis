@@ -81,29 +81,44 @@ async function handleAuthSubmit(event) {
 }
 
 async function loadEntries() {
+  let savedEntries = [];
   try {
     const saved = JSON.parse(localStorage.getItem(storageKey) || "[]");
-    if (Array.isArray(saved) && saved.length) return saved;
+    if (Array.isArray(saved)) savedEntries = saved;
   } catch {
     localStorage.removeItem(storageKey);
   }
 
-  if (!dataFile) return [];
+  if (!dataFile) return savedEntries;
 
   try {
     const response = await fetch(dataFile, { cache: "no-store" });
     if (response.ok) {
       const data = await response.json();
-      if (Array.isArray(data)) return data;
-      if (Array.isArray(data.entries)) return data.entries;
+      const importedEntries = Array.isArray(data) ? data : Array.isArray(data.entries) ? data.entries : [];
+      return mergeDiaryEntries(savedEntries, importedEntries);
     }
   } catch {
-    return [];
+    return savedEntries;
   }
+  return savedEntries;
 }
 
 function saveEntries() {
   localStorage.setItem(storageKey, JSON.stringify(entries));
+}
+
+function mergeDiaryEntries(primaryEntries, importedEntries) {
+  const merged = [];
+  const seen = new Set();
+  [...primaryEntries, ...importedEntries].forEach((entry) => {
+    if (!entry || typeof entry !== "object") return;
+    const key = entry.id || `${entry.date || ""}|${entry.title || ""}|${entry.createdAt || ""}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    merged.push(entry);
+  });
+  return merged;
 }
 
 function dateKeyFromParts(year, monthIndex, day) {
@@ -390,7 +405,7 @@ function renderEntries() {
 
     const videoWrap = card.querySelector(".video-link-wrap");
     const previewVideoUrl = entry.previewVideoUrl || entry.videoUrl;
-    const rawVideoUrl = entry.rawVideoUrl || entry.videoUrl;
+    const rawVideoUrl = entry.rawVideoUrl || entry.videoUrl || previewVideoUrl;
     if (previewVideoUrl || rawVideoUrl) {
       if (previewVideoUrl && isLocalAssetUrl(previewVideoUrl)) {
         const video = document.createElement("video");
@@ -408,11 +423,9 @@ function renderEntries() {
         rawLink.href = rawVideoUrl;
         rawLink.target = "_blank";
         rawLink.rel = "noreferrer";
+        rawLink.textContent = "Download Raw Video";
         if (isLocalAssetUrl(rawVideoUrl)) {
-          rawLink.textContent = "Download Raw Video";
           rawLink.setAttribute("download", entry.videoName || "raw-training-video");
-        } else {
-          rawLink.textContent = "Open Raw Video";
         }
         links.append(rawLink);
         videoWrap.append(links);
