@@ -4250,9 +4250,22 @@ function fallbackStageSnapshotForStage(stage) {
 function keyframeImageForStage(stage) {
   const match = keyframeForStage(stage);
   const frameIndex = match ? clampFrameIndex(keyframeToFrameIndex(match), dom.childVideo) : null;
+  const frameImage = Number.isFinite(frameIndex) ? analysisStageImageCache.get(frameIndex) : "";
+  const stageImage = analysisStageImageCache.get(stageImageCacheKey(stage));
+  const source = Number.isFinite(frameIndex) ? poseCorrectionSources.get(frameIndex) : null;
+  const hasEditedKeypoints = source && source !== "defaultAnchor" && source !== "tracked";
+
+  if (hasEditedKeypoints) {
+    return frameImage
+      || stageImage
+      || match?.image
+      || fallbackStageSnapshotForStage(stage)
+      || "";
+  }
+
   return match?.image
-    || (Number.isFinite(frameIndex) ? analysisStageImageCache.get(frameIndex) : "")
-    || analysisStageImageCache.get(stageImageCacheKey(stage))
+    || frameImage
+    || stageImage
     || fallbackStageSnapshotForStage(stage)
     || "";
 }
