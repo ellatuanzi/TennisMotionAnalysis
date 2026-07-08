@@ -183,6 +183,17 @@ const fallbackStageSnapshots = {
   finish: "exports/diary-poc-keypoints/keypoint-overlays/08-finish-keypoints.jpg",
 };
 
+const fallbackRawStageSnapshots = {
+  setup: "exports/diary-poc-keypoints/raw-frames/01-setup-raw.jpg",
+  toss: "exports/diary-poc-keypoints/raw-frames/02-toss-raw.jpg",
+  load: "exports/diary-poc-keypoints/raw-frames/03-load-raw.jpg",
+  drop: "exports/diary-poc-keypoints/raw-frames/04-racket-drop-raw.jpg",
+  acceleration: "exports/diary-poc-keypoints/raw-frames/05-acceleration-raw.jpg",
+  contact: "exports/diary-poc-keypoints/raw-frames/06-contact-raw.jpg",
+  deceleration: "exports/diary-poc-keypoints/raw-frames/07-deceleration-raw.jpg",
+  finish: "exports/diary-poc-keypoints/raw-frames/08-finish-raw.jpg",
+};
+
 const progressStorageKey = "tennisMotionLab.serveProgress.v1";
 const diaryStorageKey = "tennisMotionLab.trainingDiary.v2";
 const draftStorageKey = "tennisMotionLab.motionDraft.v1";
@@ -4279,17 +4290,25 @@ function stageImageCacheKey(stage) {
   return normalizeStageName(stage.name || stage.phase || stage.id);
 }
 
-function fallbackStageSnapshotForStage(stage) {
+function fallbackStageSnapshotFromMap(stage, map) {
   const normalized = normalizeStageName(stage?.phase || stage?.name);
   const aliases = {
     racketdrop: "drop",
     tossearlyracketmovement: "toss",
     accelerationracketapproach: "acceleration",
   };
-  return fallbackStageSnapshots[stage?.id]
-    || fallbackStageSnapshots[normalized]
-    || fallbackStageSnapshots[aliases[normalized]]
+  return map[stage?.id]
+    || map[normalized]
+    || map[aliases[normalized]]
     || "";
+}
+
+function fallbackStageSnapshotForStage(stage) {
+  return fallbackStageSnapshotFromMap(stage, fallbackStageSnapshots);
+}
+
+function fallbackRawStageSnapshotForStage(stage) {
+  return fallbackStageSnapshotFromMap(stage, fallbackRawStageSnapshots);
 }
 
 function isEditedAnchorSource(source) {
@@ -5382,6 +5401,20 @@ function captureAnalysisFrame(poseOverride = null) {
   return output.toDataURL("image/jpeg", 0.86);
 }
 
+function captureRawKeyframeImage() {
+  const canvas = document.createElement("canvas");
+  const rect = dom.childRenderCanvas.getBoundingClientRect();
+  const width = rect.width > 40 ? Math.round(rect.width) : 960;
+  const height = rect.height > 40 ? Math.round(rect.height) : 540;
+  drawCroppedPlayerVideo({
+    canvas,
+    rect: { x: 0, y: 0, width, height },
+    scale: 1,
+  });
+  if (canvasLooksBlank(canvas)) return "";
+  return canvas.toDataURL("image/jpeg", 0.9);
+}
+
 function canvasLooksBlank(canvas) {
   const width = canvas?.width || 0;
   const height = canvas?.height || 0;
@@ -5708,18 +5741,30 @@ function snapshotDetectedPoseForKeyframe(frameIndex) {
   return addTrackedObjects(clonePose(pose));
 }
 
-function fallbackKeyframeCardsForStages(frames) {
+async function fallbackKeyframeCardsForStages(frames) {
   const fps = Math.max(1, Number(dom.fpsInput?.value || 60));
-  return frames.map((frame) => {
+  const video = dom.childVideo;
+  const cards = [];
+  for (const frame of frames) {
     const frameIndex = Math.max(0, Math.round((frame.time || 0) * fps));
     const pose = baselinePoseForFrame(frameIndex);
-    return {
+    let image = "";
+    if (reliableVideoDuration(video) > 0) {
+      await seekVideoToTime(video, frame.time, 900).catch(() => {});
+      const actualTime = Number.isFinite(video.currentTime) ? video.currentTime : frame.time;
+      const seekMatched = Math.abs(actualTime - frame.time) <= 0.18 || frame.time <= 0.18;
+      if (seekMatched) image = captureRawKeyframeImage();
+    }
+    cards.push({
       ...frame,
       frameIndex,
-      image: fallbackStageSnapshotForStage({ phase: frame.phase }) || captureAnalysisFrame(pose),
+      image: image
+        || fallbackRawStageSnapshotForStage({ phase: frame.phase })
+        || fallbackStageSnapshotForStage({ phase: frame.phase }),
       pose,
-    };
-  });
+    });
+  }
+  return cards;
 }
 
 async function generateKeyframes(data) {
@@ -5777,7 +5822,7 @@ async function generateKeyframes(data) {
   ];
 
   if (!metadataReady || reliableVideoDuration(video) <= 0) {
-    keyframes = fallbackKeyframeCardsForStages(frames);
+    keyframes = await fallbackKeyframeCardsForStages(frames);
     selectedKeyframeIndex = 0;
     keypointTrackingReady = false;
     renderKeyframes();
@@ -5836,7 +5881,7 @@ async function generateKeyframes(data) {
   }
 
   if (extractionError) {
-    keyframes = fallbackKeyframeCardsForStages(frames);
+    keyframes = await fallbackKeyframeCardsForStages(frames);
     selectedKeyframeIndex = 0;
     keypointTrackingReady = false;
     renderKeyframes();
