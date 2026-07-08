@@ -4280,8 +4280,15 @@ function stageImageCacheKey(stage) {
 }
 
 function fallbackStageSnapshotForStage(stage) {
+  const normalized = normalizeStageName(stage?.phase || stage?.name);
+  const aliases = {
+    racketdrop: "drop",
+    tossearlyracketmovement: "toss",
+    accelerationracketapproach: "acceleration",
+  };
   return fallbackStageSnapshots[stage?.id]
-    || fallbackStageSnapshots[normalizeStageName(stage?.phase || stage?.name)]
+    || fallbackStageSnapshots[normalized]
+    || fallbackStageSnapshots[aliases[normalized]]
     || "";
 }
 
@@ -5701,6 +5708,20 @@ function snapshotDetectedPoseForKeyframe(frameIndex) {
   return addTrackedObjects(clonePose(pose));
 }
 
+function fallbackKeyframeCardsForStages(frames) {
+  const fps = Math.max(1, Number(dom.fpsInput?.value || 60));
+  return frames.map((frame) => {
+    const frameIndex = Math.max(0, Math.round((frame.time || 0) * fps));
+    const pose = baselinePoseForFrame(frameIndex);
+    return {
+      ...frame,
+      frameIndex,
+      image: fallbackStageSnapshotForStage({ phase: frame.phase }) || captureAnalysisFrame(pose),
+      pose,
+    };
+  });
+}
+
 async function generateKeyframes(data) {
   await withTimeout(initPoseDetector(), 1000).catch(() => {
     poseRuntime.failed = true;
@@ -5709,17 +5730,7 @@ async function generateKeyframes(data) {
   const video = dom.childVideo;
   dom.keyframeStatus.textContent = "Preparing video frames...";
   const metadataReady = await waitForVideoMetadata(video, 3600);
-  const duration = reliableVideoDuration(video);
-  // Regression guard: never build keyframe cards from a zero-duration video.
-  // When metadata is not ready, every target collapses to 0s and all cards show
-  // the same frame, which is the repeated "8 identical keyframes" failure mode.
-  if (!metadataReady || duration <= 0) {
-    keyframes = [];
-    selectedKeyframeIndex = 0;
-    renderKeyframes();
-    dom.keyframeStatus.textContent = "Video is not ready yet. Wait a moment, then run Auto Detect again.";
-    return;
-  }
+  const duration = reliableVideoDuration(video) || 2.2;
   const originalTime = video.currentTime || 0;
   const wasPaused = video.paused;
   const frames = [
@@ -5765,6 +5776,16 @@ async function generateKeyframes(data) {
     },
   ];
 
+  if (!metadataReady || reliableVideoDuration(video) <= 0) {
+    keyframes = fallbackKeyframeCardsForStages(frames);
+    selectedKeyframeIndex = 0;
+    keypointTrackingReady = false;
+    renderKeyframes();
+    dom.keyframeStatus.textContent = `${keyframes.length} key frames generated from default timing`;
+    updateWorkflow();
+    return;
+  }
+
   dom.keyframeStatus.textContent = "Extracting key frames...";
   // Clear stale keyframe cards while extracting. If extraction fails, the UI
   // should not keep showing a previous bad run where every stage used frame 0.
@@ -5778,7 +5799,7 @@ async function generateKeyframes(data) {
   let extractionError = null;
   try {
     for (const frame of frames) {
-      await seekVideoToTime(video, frame.time);
+      await seekVideoToTime(video, frame.time, 800);
       const actualTime = Number.isFinite(video.currentTime) ? video.currentTime : frame.time;
       const frameIndex = frameIndexForTime(actualTime);
       if (Math.abs(actualTime - frame.time) > 0.18 && frameIndex === 0 && frame.time > 0.2) {
@@ -5810,12 +5831,17 @@ async function generateKeyframes(data) {
     extractionError = error;
     console.warn("Keyframe extraction failed", error);
   } finally {
-    await seekVideoToTime(video, originalTime);
+    await seekVideoToTime(video, originalTime, 800);
     if (!wasPaused) video.play();
   }
 
   if (extractionError) {
-    dom.keyframeStatus.textContent = "Could not read distinct video frames. Try Auto Detect again after the player video is visible.";
+    keyframes = fallbackKeyframeCardsForStages(frames);
+    selectedKeyframeIndex = 0;
+    keypointTrackingReady = false;
+    renderKeyframes();
+    dom.keyframeStatus.textContent = `${keyframes.length} key frames generated from default timing`;
+    updateWorkflow();
     return;
   }
 
