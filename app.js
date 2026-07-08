@@ -147,8 +147,8 @@ const dom = {
 };
 
 const pocPreset = {
-  playerVideo: "./assets/player-poc.mov",
-  playerLabel: "IMG_1610.MOV (PoC)",
+  playerVideo: "./assets/atticus-07082026-poc.mov",
+  playerLabel: "IMG_1894.MOV (PoC)",
   referenceTitle: "Super slow-motion Forehand Video.(Step by step)",
   referenceUrl: "https://www.youtube.com/watch?v=jHCSCBb9IW4",
   referenceStart: "00:00",
