@@ -1,0 +1,565 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Junior Tennis Motion Analysis</title>
+    <link rel="stylesheet" href="./styles.css?v=20260707-diary-export" />
+    <script src="./vendor/onnxruntime-web/ort.wasm.min.js?v=20260704-2"></script>
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Tennis Motion Lab</p>
+          <h1>Junior Tennis Motion Analysis</h1>
+        </div>
+        <div class="topbar-actions">
+          <a class="topbar-link" href="./training-diary.html">Training Diary</a>
+          <div class="status-pill" id="pipelineStatus">
+            <span class="dot"></span>
+            Ready
+          </div>
+        </div>
+      </header>
+
+      <section class="workflow-panel" aria-label="Motion analysis workflow">
+        <div class="workflow-steps" id="workflowSteps">
+          <span class="active" data-step="roi">1. ROI</span>
+          <span data-step="frames">2. Key Frames</span>
+          <span data-step="keypoints">3. Frame Corrections</span>
+          <span data-step="review">4. Review Video</span>
+          <span data-step="analysis">5. Motion Analysis</span>
+        </div>
+        <div class="workflow-action-row">
+          <p id="workflowHint">Start by adjusting the blue ROI box around the player, then confirm it.</p>
+          <div class="workflow-actions">
+            <button class="secondary-action compact ghost" id="loadDraftButton" type="button">Load Draft</button>
+            <button class="secondary-action compact ghost" id="saveDraftButton" type="button">Save Draft</button>
+            <button class="primary-action compact" id="workflowNextButton" type="button">
+              <span>▶</span>
+              Confirm ROI
+            </button>
+          </div>
+        </div>
+        <p class="draft-status" id="draftStatus">No draft saved yet</p>
+      </section>
+
+      <section class="workspace">
+        <aside class="control-panel">
+          <div class="panel-section video-inputs-section">
+            <h2>Video Inputs</h2>
+            <label class="upload-zone" for="childVideoInput">
+              <input id="childVideoInput" type="file" accept="video/*" />
+              <span class="upload-icon">↥</span>
+              <strong>Player Video</strong>
+              <small id="childFileName">Choose video</small>
+            </label>
+            <div class="session-save-row">
+              <button class="secondary-action" id="saveVideoSessionButton" type="button">Save Video Session</button>
+              <span id="videoSessionStatus">Save this upload for future progress comparison.</span>
+            </div>
+            <div class="input-mode" id="standardMode">
+              <button class="active" type="button" data-mode="upload">Video</button>
+              <button type="button" data-mode="youtube">YouTube</button>
+              <button type="button" data-mode="notes">Notes</button>
+            </div>
+            <label class="upload-zone" for="standardVideoInput">
+              <input id="standardVideoInput" type="file" accept="video/*" />
+              <span class="upload-icon">◇</span>
+              <strong>Reference Video</strong>
+              <small id="standardFileName">Choose video</small>
+            </label>
+            <div class="youtube-fields hidden" id="youtubeFields">
+              <label>
+                YouTube URL
+                <input id="youtubeUrl" type="url" placeholder="https://www.youtube.com/watch?v=..." />
+              </label>
+              <div class="time-row">
+                <label>
+                  Start
+                  <input id="clipStart" type="text" value="00:42" />
+                </label>
+                <label>
+                  End
+                  <input id="clipEnd" type="text" value="00:49" />
+                </label>
+              </div>
+              <a class="source-link" id="referenceSourceLink" href="#" target="_blank" rel="noreferrer">
+                Open reference source
+              </a>
+            </div>
+            <div class="notes-fields hidden" id="notesFields">
+              <label>
+                Coaching Notes
+                <textarea id="coachingNotes" rows="7"></textarea>
+              </label>
+              <label>
+                Resource Link
+                <input id="coachingResourceUrl" type="url" placeholder="https://..." />
+              </label>
+              <button class="secondary-action" id="useDefaultNotesButton" type="button">Use Default Notes</button>
+            </div>
+          </div>
+
+          <div class="panel-section motion-details-section">
+            <h2>Motion Details</h2>
+            <label>
+              Stroke Type
+              <select id="strokeType">
+                <option value="forehand">Forehand</option>
+                <option value="backhand">Backhand</option>
+                <option value="serve" selected>Serve</option>
+                <option value="volley">Volley</option>
+              </select>
+            </label>
+            <label>
+              Dominant Hand
+              <select id="dominantHand">
+                <option value="left" selected>Left</option>
+                <option value="right">Right</option>
+              </select>
+            </label>
+            <label>
+              Age
+              <input id="playerAge" type="number" min="4" max="18" value="10" />
+            </label>
+          </div>
+
+          <div class="panel-section setup-section">
+            <h2>Estimation Settings</h2>
+            <label class="roi-control">
+              Player Zoom
+              <input id="playerZoom" type="range" min="1" max="4" step="0.1" value="3" />
+            </label>
+            <label class="roi-control">
+              Crop X
+              <input id="playerCropX" type="range" min="0" max="1" step="0.01" value="0.61" />
+            </label>
+            <label class="roi-control">
+              Crop Y
+              <input id="playerCropY" type="range" min="0" max="1" step="0.01" value="0.58" />
+            </label>
+            <div class="roi-actions">
+              <button class="secondary-action" id="confirmRoiButton" type="button">Confirm ROI</button>
+              <button class="secondary-action" id="editKeyframeAnchorsButton" type="button">Edit Key Frames Only</button>
+              <button class="secondary-action" id="editKeypointsButton" type="button">Edit Full Video</button>
+              <button class="secondary-action" id="exportVideoButton" type="button">Render Review Video</button>
+              <a class="download-link hidden" id="downloadVideoLink" href="#" download="keypoint-analysis.webm">Download rendered video</a>
+              <span id="roiStatus">Adjust crop with sliders or the blue resize handle, then confirm</span>
+            </div>
+            <div class="keypoint-editor" id="keypointEditor">
+              <div class="editor-help">
+                <strong>Keyframe-guided correction</strong>
+                <span>Auto Detect chooses high-confidence default anchors first. Adjust those anchors, add more where needed, and the current frame will always show the latest smoothed result.</span>
+              </div>
+              <div class="tracking-actions">
+                <button type="button" id="saveKeyframeAnchorButton">Save Key Frame Anchor</button>
+                <button type="button" id="generateTrackedFramesButton">Generate Smooth Track</button>
+                <button type="button" id="saveTrainingSampleButton">Save Training Sample</button>
+                <button class="hidden" type="button" id="suggestedAnchorButton">Fix suggested frame</button>
+                <span id="trackingStatus">Auto Detect creates default anchors; adjust them first.</span>
+              </div>
+              <div class="tracking-quality" id="trackingQualityPanel">
+                <div class="quality-head">
+                  <strong id="trackingQualityScore">Tracking quality --</strong>
+                  <span id="trackingQualityHint">Review Anchors -> Generate Track -> Inspect Low-Confidence Frames.</span>
+                </div>
+                <div class="anchor-legend">
+                  <span class="anchor-badge anchor-default">Default</span>
+                  <span class="anchor-badge anchor-user">User</span>
+                  <span class="anchor-badge anchor-suggested">Suggested</span>
+                </div>
+                <div class="low-quality-list" id="lowQualityFrames"></div>
+                <div class="object-detector-status" id="objectDetectorStatus"></div>
+                <div class="trajectory-summary" id="trajectorySummary"></div>
+              </div>
+              <div class="edit-playback">
+                <button type="button" id="editPlayPauseButton">Play</button>
+                <button type="button" id="prevFrameButton">Prev Frame</button>
+                <button type="button" id="nextFrameButton">Next Frame</button>
+                <button type="button" id="nextKeyframeButton">Next Key Frame</button>
+                <button type="button" id="prevKeypointButton">Prev Key Point</button>
+                <button type="button" id="saveFrameCorrectionButton">Save Current Frame</button>
+              </div>
+              <label>
+                Frame
+                <input id="frameScrubber" type="range" min="0" max="0" step="1" value="0" />
+                <small class="frame-readout"><span id="frameNumber">0</span> / <span id="frameTotal">0</span></small>
+              </label>
+              <label>
+                Keypoint
+                <select id="keypointSelect">
+                  <option value="head">Head</option>
+                  <option value="leftShoulder">Left shoulder</option>
+                  <option value="rightShoulder">Right shoulder</option>
+                  <option value="leftElbow">Left elbow</option>
+                  <option value="rightElbow">Right elbow</option>
+                  <option value="leftWrist">Left wrist</option>
+                  <option value="rightWrist">Right wrist</option>
+                  <option value="leftHip">Left hip</option>
+                  <option value="rightHip">Right hip</option>
+                  <option value="leftKnee">Left knee</option>
+                  <option value="rightKnee">Right knee</option>
+                  <option value="leftAnkle">Left ankle</option>
+                  <option value="rightAnkle">Right ankle</option>
+                  <option value="racketBox">Racket box</option>
+                  <option value="racketRotate">Racket rotate</option>
+                  <option value="racketLength">Racket length</option>
+                  <option value="racketWidth">Racket width</option>
+                  <option value="ball">Ball</option>
+                </select>
+              </label>
+              <div class="visibility-actions">
+                <button class="secondary-action" id="toggleKeypointVisibilityButton" type="button">Hide Selected Point</button>
+                <span id="keypointVisibilityStatus">Visible on this frame</span>
+                <label class="editor-toggle">
+                  <input id="showRacketMask" type="checkbox" checked />
+                  Show racket mask
+                </label>
+              </div>
+              <div class="nudge-grid">
+                <button type="button" data-nudge="up">↑</button>
+                <button type="button" data-nudge="left">←</button>
+                <button type="button" data-nudge="right">→</button>
+                <button type="button" data-nudge="down">↓</button>
+              </div>
+              <div class="racket-box-controls">
+                <label>
+                  Racket X
+                  <input id="racketBoxX" type="range" min="0" max="1" step="0.005" value="0.5" />
+                </label>
+                <label>
+                  Racket Y
+                  <input id="racketBoxY" type="range" min="0" max="1" step="0.005" value="0.5" />
+                </label>
+                <label>
+                  Racket angle
+                  <input id="racketBoxAngle" type="range" min="-3.14" max="3.14" step="0.01" value="0" />
+                </label>
+                <label>
+                  Racket length
+                  <input id="racketBoxHeight" type="range" min="0.018" max="0.5" step="0.002" value="0.18" />
+                </label>
+                <label>
+                  Racket width
+                  <input id="racketBoxWidth" type="range" min="0.008" max="0.3" step="0.002" value="0.055" />
+                </label>
+              </div>
+            </div>
+            <label class="estimation-extra">
+              Video FPS
+              <input id="fpsInput" type="number" min="24" max="240" value="60" />
+            </label>
+            <label class="estimation-extra">
+              Reference Distance (m)
+              <input id="courtDistance" type="number" min="1" max="24" step="0.1" value="6.4" />
+            </label>
+            <label class="toggle-row estimation-extra">
+              <input id="showSkeleton" type="checkbox" checked />
+              Show keypoints
+            </label>
+          </div>
+
+          <button class="primary-action" id="analyzeButton" type="button">
+            <span>▶</span>
+            Confirm ROI
+          </button>
+        </aside>
+
+        <section class="analysis-stage">
+          <div class="video-grid step-panel" data-visible-steps="roi,frames,keypoints">
+            <article class="video-tile player-video-tile">
+              <div class="tile-head">
+                <h2>Player Video</h2>
+                <span id="childPoseScore">--</span>
+              </div>
+              <div class="video-frame">
+                <video id="childVideo" controls playsinline muted></video>
+                <canvas id="childRenderCanvas"></canvas>
+                <canvas id="childCanvas"></canvas>
+                <div class="roi-drag-box" id="roiDragBox">
+                  <span>ROI preview</span>
+                  <i aria-hidden="true"></i>
+                </div>
+                <div class="empty-state" id="childEmpty">Waiting for video</div>
+              </div>
+            </article>
+
+            <article class="video-tile reference-video-tile">
+              <div class="tile-head">
+                <h2>Reference Video</h2>
+                <span id="standardPoseScore">--</span>
+              </div>
+              <div class="video-frame">
+                <video id="standardVideo" controls playsinline muted></video>
+                <iframe
+                  id="referenceYoutubeFrame"
+                  title="Reference YouTube clip"
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                  allowfullscreen
+                ></iframe>
+                <button class="youtube-preview hidden" id="referencePreview" type="button">
+                  <img id="referenceThumbnail" alt="Reference video thumbnail" />
+                  <span>
+                    <strong id="referencePreviewTitle">Reference clip</strong>
+                    <small>Play online reference</small>
+                  </span>
+                </button>
+                <canvas id="standardCanvas"></canvas>
+                <div class="notes-preview hidden" id="notesPreview">
+                  <strong id="notesPreviewTitle">Coaching Notes</strong>
+                  <p id="notesPreviewText"></p>
+                  <a id="notesPreviewLink" href="#" target="_blank" rel="noreferrer">Open resource</a>
+                </div>
+                <div class="empty-state" id="standardEmpty">Waiting for video</div>
+              </div>
+            </article>
+          </div>
+
+          <div class="timeline-panel step-panel" data-visible-steps="frames,keypoints">
+            <div class="phase-tabs" id="phaseTabs">
+              <button class="active" data-phase="ready">Ready</button>
+              <button data-phase="load">Load</button>
+              <button data-phase="contact">Contact</button>
+              <button data-phase="follow">Follow</button>
+            </div>
+            <div class="phase-detail">
+              <div>
+                <p class="metric-label">Current Phase</p>
+                <strong id="phaseName">Ready</strong>
+              </div>
+              <div>
+                <p class="metric-label">Sync Gap</p>
+                <strong id="syncGap">-- ms</strong>
+              </div>
+              <div>
+                <p class="metric-label">Stability</p>
+                <strong id="stabilityScore">--</strong>
+              </div>
+            </div>
+          </div>
+
+          <section class="keyframe-panel step-panel" data-visible-steps="frames,keypoints">
+            <div class="section-head">
+              <h2>Key Frame Analysis</h2>
+              <div class="keyframe-tools">
+                <button type="button" id="detectKeyframesButton">Auto Detect Key Frames</button>
+                <button type="button" id="addKeyframeButton">Add Current Frame</button>
+                <button type="button" id="updateKeyframeButton">Update Selected</button>
+                <button type="button" id="deleteKeyframeButton">Delete Selected</button>
+              </div>
+              <span id="keyframeStatus">Run analysis to generate frames</span>
+            </div>
+            <div class="correction-choice hidden" id="correctionChoice">
+              <div>
+                <h3>Choose correction path</h3>
+                <p>Fix only the key frames for a faster report, or correct the full video before review.</p>
+              </div>
+              <div class="correction-choice-actions">
+                <button type="button" id="fixKeyframesOnlyButton">Fix Key Frames Only</button>
+                <button type="button" id="fixFullVideoButton">Fix Full Video</button>
+              </div>
+              <span id="correctionModeStatus">Choose a path after key frames are ready.</span>
+            </div>
+            <div class="keyframe-grid" id="keyframeGrid">
+              <article class="keyframe-card empty">Setup</article>
+              <article class="keyframe-card empty">Toss</article>
+              <article class="keyframe-card empty">Load</article>
+              <article class="keyframe-card empty">Racket Drop</article>
+              <article class="keyframe-card empty">Acceleration</article>
+              <article class="keyframe-card empty">Contact</article>
+              <article class="keyframe-card empty">Deceleration</article>
+              <article class="keyframe-card empty">Finish</article>
+            </div>
+          </section>
+
+          <section class="annotated-video-panel hidden step-panel" id="annotatedVideoPanel" data-visible-steps="review,analysis">
+            <div class="section-head">
+              <h2>Annotated Keypoint Video</h2>
+              <div class="annotated-tools">
+                <button type="button" id="replayAnnotatedButton">Replay</button>
+                <button type="button" id="pauseAnnotatedButton">Pause</button>
+                <button type="button" id="editReviewFrameButton">Edit current frame</button>
+                <span id="annotatedVideoStatus">Render video to review detection</span>
+              </div>
+            </div>
+            <video id="annotatedVideo" controls playsinline preload="metadata"></video>
+            <div class="review-frame-preview">
+              <div class="review-frame-head">
+                <h3>Frame Preview</h3>
+                <span id="reviewFrameLabel">Frame --</span>
+              </div>
+              <input id="reviewFrameScrubber" type="range" min="0" max="0" step="1" value="0" />
+              <canvas id="reviewFrameCanvas"></canvas>
+            </div>
+          </section>
+
+          <section class="result-grid step-panel" data-visible-steps="analysis">
+            <article class="metric-card accent">
+              <p>Overall Match</p>
+              <strong id="overallScore">--</strong>
+              <span id="overallNote">Waiting for analysis</span>
+            </article>
+            <article class="metric-card">
+              <p>Racket Speed</p>
+              <strong id="racketSpeed">--</strong>
+              <span>km/h</span>
+            </article>
+            <article class="metric-card">
+              <p>Estimated Ball Speed</p>
+              <strong id="ballSpeed">--</strong>
+              <span>km/h</span>
+            </article>
+            <article class="metric-card">
+              <p>Contact Height</p>
+              <strong id="contactHeight">--</strong>
+              <span>body ratio</span>
+            </article>
+          </section>
+
+          <section class="diary-export-panel step-panel" data-visible-steps="analysis">
+            <div>
+              <h2>Export Analysis</h2>
+              <p>Send this completed motion analysis to the training diary for coach review.</p>
+            </div>
+            <div class="diary-export-actions">
+              <button class="primary-action compact" type="button" id="exportDiaryButton">
+                <span>↗</span>
+                Export to Diary
+              </button>
+              <span id="diaryExportStatus">Run motion analysis before exporting to diary.</span>
+            </div>
+          </section>
+
+          <section class="stage-analysis-panel step-panel" data-visible-steps="analysis">
+            <div class="section-head">
+              <h2>Overall & Stage Analysis</h2>
+              <span id="stageAnalysisStatus">Run motion analysis to generate stage details</span>
+            </div>
+            <article class="overall-analysis">
+              <h3>Overall Serve Summary</h3>
+              <p id="overallAnalysisText">Waiting for a reviewed keypoint video and motion analysis.</p>
+            </article>
+            <article class="mechanics-table-panel">
+              <div class="section-head compact-head">
+                <h3>Serve Mechanics Report</h3>
+                <span>Current vs ideal checkpoints</span>
+              </div>
+              <div class="mechanics-table-wrap">
+                <table class="mechanics-table" id="mechanicsReportTable">
+                  <tbody>
+                    <tr><td>Run motion analysis to generate the mechanics report.</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </article>
+            <div class="stage-grid" id="stageAnalysisGrid"></div>
+            <article class="technical-detail">
+              <h3>Technical Details</h3>
+              <div id="technicalDetailList"></div>
+            </article>
+          </section>
+
+          <section class="progress-panel step-panel" data-visible-steps="analysis">
+            <div class="section-head">
+              <h2>Serve Progress Tracker</h2>
+              <div class="keyframe-tools">
+                <button type="button" id="saveProgressButton">Save This Analysis</button>
+                <button type="button" id="clearProgressButton">Clear Progress</button>
+              </div>
+              <span id="progressStatus">No saved sessions yet</span>
+            </div>
+            <article class="progress-compare">
+              <div class="section-head compact-head">
+                <h3>Compare Saved Frames</h3>
+                <span id="progressCompareStatus">Choose a saved video to compare with the current frames.</span>
+              </div>
+              <div class="progress-compare-controls">
+                <label>
+                  Saved video
+                  <select id="progressCompareSelect"></select>
+                </label>
+                <label>
+                  Stage
+                  <select id="progressCompareStage"></select>
+                </label>
+              </div>
+              <div class="progress-compare-grid" id="progressCompareGrid"></div>
+            </article>
+            <div class="progress-summary" id="progressSummary">
+              <article>
+                <p>Sessions</p>
+                <strong id="progressSessionCount">0</strong>
+              </article>
+              <article>
+                <p>Best Score</p>
+                <strong id="progressBestScore">--</strong>
+              </article>
+              <article>
+                <p>Latest Trend</p>
+                <strong id="progressTrend">--</strong>
+              </article>
+            </div>
+            <div class="progress-chart" id="progressChart"></div>
+            <div class="progress-list" id="progressList"></div>
+          </section>
+        </section>
+
+        <aside class="report-panel step-panel" data-visible-steps="analysis">
+          <div class="panel-section report-header">
+            <h2>AI Motion Report</h2>
+            <button class="icon-button" id="copyReport" type="button" title="Copy report">⧉</button>
+          </div>
+
+          <div class="score-ring" aria-label="Overall score">
+            <svg viewBox="0 0 120 120" role="img">
+              <circle class="ring-bg" cx="60" cy="60" r="50"></circle>
+              <circle class="ring-fg" id="scoreRing" cx="60" cy="60" r="50"></circle>
+            </svg>
+            <div>
+              <strong id="ringScore">--</strong>
+              <span>Motion Score</span>
+            </div>
+          </div>
+
+          <div class="report-block">
+            <h3>Strengths</h3>
+            <ul id="strengthList">
+              <li>Generated after analysis</li>
+            </ul>
+          </div>
+
+          <div class="report-block">
+            <h3>Improvement Areas</h3>
+            <ul id="weaknessList">
+              <li>Generated after analysis</li>
+            </ul>
+          </div>
+
+          <div class="report-block">
+            <h3>Motion Profile</h3>
+            <p id="styleSummary">Waiting for player and reference videos.</p>
+          </div>
+
+          <div class="report-block compact">
+            <h3>Key Angles</h3>
+            <div class="angle-list" id="angleList">
+              <span>Shoulder-hip separation --</span>
+              <span>Elbow angle --</span>
+              <span>Knee flexion --</span>
+            </div>
+          </div>
+        </aside>
+      </section>
+    </main>
+
+    <dialog class="frame-modal" id="frameModal">
+      <button class="modal-close" id="closeFrameModal" type="button">×</button>
+      <img id="frameModalImage" alt="Expanded key frame" />
+    </dialog>
+
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
+    <script src="./app.js?v=20260707-diary-export"></script>
+  </body>
+</html>

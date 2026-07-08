@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>PoC Key Point Detection Export</title>
+    <style>
+      body { margin: 0; padding: 24px; background: #f6f7f4; color: #15201d; font-family: Inter, system-ui, sans-serif; }
+      h1 { margin: 0 0 18px; font-size: 42px; }
+      .grid { display: grid; gap: 16px; }
+      .card { display: grid; grid-template-columns: minmax(280px, 520px) 1fr; gap: 18px; padding: 16px; border: 1px solid #dfe5df; border-radius: 8px; background: white; }
+      .card.good { border-left: 6px solid #147a55; }
+      .card.issue { border-left: 6px solid #c7522f; }
+      img { width: 100%; border-radius: 8px; border: 1px solid #dfe5df; }
+      span { color: #64716b; font-weight: 800; }
+      h2 { margin: 6px 0; font-size: 28px; }
+      strong { display: inline-flex; margin: 4px 0 10px; padding: 8px 12px; border-radius: 999px; background: #dff4e8; color: #147a55; }
+      .issue strong { background: #ffe8dd; color: #c7522f; }
+      p { font-size: 18px; line-height: 1.5; }
+      a { display: inline-flex; margin: 4px 8px 0 0; padding: 10px 12px; border-radius: 6px; background: #15201d; color: white; font-weight: 900; text-decoration: none; }
+      @media (max-width: 860px) { .card { grid-template-columns: 1fr; } }
+    </style>
+  </head>
+  <body>
+    <h1>PoC Key Point Detection Export</h1>
+    <section class="grid">
+            <article class="card good">
+              <img src="keypoint-overlays/01-setup-keypoints.jpg" alt="Setup key point overlay">
+              <div>
+                <span>0.13s · frame 4</span>
+                <h2>Setup</h2>
+                <strong>AI 88/100</strong>
+                <p>Balanced starting shape with a repeatable base. Keep the head quiet before the toss.</p>
+                <a href="raw-frames/01-setup-raw.jpg" download>Download raw frame</a>
+                <a href="keypoint-overlays/01-setup-keypoints.jpg" download>Download keypoint overlay</a>
+              </div>
+            </article>
+            
+            <article class="card issue">
+              <img src="keypoint-overlays/02-toss-keypoints.jpg" alt="Toss key point overlay">
+              <div>
+                <span>0.40s · frame 12</span>
+                <h2>Toss</h2>
+                <strong>AI 74/100</strong>
+                <p>Toss arm should extend fully while the racket stays organized instead of dropping early.</p>
+                <a href="raw-frames/02-toss-raw.jpg" download>Download raw frame</a>
+                <a href="keypoint-overlays/02-toss-keypoints.jpg" download>Download keypoint overlay</a>
+              </div>
+            </article>
+            
+            <article class="card issue">
+              <img src="keypoint-overlays/03-load-keypoints.jpg" alt="Load key point overlay">
+              <div>
+                <span>0.66s · frame 20</span>
+                <h2>Load</h2>
+                <strong>AI 68/100</strong>
+                <p>Legs and hips need to load before the racket drop so the serve does not become arm-dominant.</p>
+                <a href="raw-frames/03-load-raw.jpg" download>Download raw frame</a>
+                <a href="keypoint-overlays/03-load-keypoints.jpg" download>Download keypoint overlay</a>
+              </div>
+            </article>
+            
+            <article class="card issue">
+              <img src="keypoint-overlays/04-racket-drop-keypoints.jpg" alt="Racket Drop key point overlay">
+              <div>
+                <span>0.96s · frame 29</span>
+                <h2>Racket Drop</h2>
+                <strong>AI 71/100</strong>
+                <p>Racket drop should connect to the upward drive, not start as a separate arm-only move.</p>
+                <a href="raw-frames/04-racket-drop-raw.jpg" download>Download raw frame</a>
+                <a href="keypoint-overlays/04-racket-drop-keypoints.jpg" download>Download keypoint overlay</a>
+              </div>
+            </article>
+            
+            <article class="card issue">
+              <img src="keypoint-overlays/05-acceleration-keypoints.jpg" alt="Acceleration key point overlay">
+              <div>
+                <span>1.19s · frame 36</span>
+                <h2>Acceleration</h2>
+                <strong>AI 76/100</strong>
+                <p>Lead with the edge or back of the racket; avoid opening the racket face too early.</p>
+                <a href="raw-frames/05-acceleration-raw.jpg" download>Download raw frame</a>
+                <a href="keypoint-overlays/05-acceleration-keypoints.jpg" download>Download keypoint overlay</a>
+              </div>
+            </article>
+            
+            <article class="card issue">
+              <img src="keypoint-overlays/06-contact-keypoints.jpg" alt="Contact key point overlay">
+              <div>
+                <span>1.38s · frame 42</span>
+                <h2>Contact</h2>
+                <strong>AI 72/100</strong>
+                <p>Reach higher through contact with the wrist clearly above the shoulder and the body driving upward.</p>
+                <a href="raw-frames/06-contact-raw.jpg" download>Download raw frame</a>
+                <a href="keypoint-overlays/06-contact-keypoints.jpg" download>Download keypoint overlay</a>
+              </div>
+            </article>
+            
+            <article class="card issue">
+              <img src="keypoint-overlays/07-deceleration-keypoints.jpg" alt="Deceleration key point overlay">
+              <div>
+                <span>1.61s · frame 49</span>
+                <h2>Deceleration</h2>
+                <strong>AI 70/100</strong>
+                <p>Leg drive should peak before contact so power transfers up the chain before deceleration.</p>
+                <a href="raw-frames/07-deceleration-raw.jpg" download>Download raw frame</a>
+                <a href="keypoint-overlays/07-deceleration-keypoints.jpg" download>Download keypoint overlay</a>
+              </div>
+            </article>
+            
+            <article class="card good">
+              <img src="keypoint-overlays/08-finish-keypoints.jpg" alt="Finish key point overlay">
+              <div>
+                <span>1.85s · frame 56</span>
+                <h2>Finish</h2>
+                <strong>AI 84/100</strong>
+                <p>Land with a softer front knee and complete the follow-through across the body.</p>
+                <a href="raw-frames/08-finish-raw.jpg" download>Download raw frame</a>
+                <a href="keypoint-overlays/08-finish-keypoints.jpg" download>Download keypoint overlay</a>
+              </div>
+            </article>
+            </section>
+  </body>
+</html>

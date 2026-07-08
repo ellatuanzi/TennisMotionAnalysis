@@ -1,0 +1,244 @@
+{
+  "entries": [
+    {
+      "id": "poc-player-serve-2026-07-07",
+      "source": "motion-analysis-poc-export",
+      "createdAt": "2026-07-07T18:00:00.000Z",
+      "date": "2026-07-07",
+      "title": "IMG_1610.MOV \u00b7 Serve motion-analysis PoC",
+      "stroke": "serve",
+      "videoUrl": "./assets/player-poc.mov",
+      "rawVideoUrl": "./assets/player-poc.mov",
+      "videoName": "IMG_1610.MOV",
+      "keyframes": [
+        {
+          "time": "0.13",
+          "phase": "Setup",
+          "score": 88,
+          "status": "good",
+          "image": "./exports/diary-poc-keypoints/keypoint-overlays/01-setup-keypoints.jpg",
+          "rawFrame": "./exports/diary-poc-keypoints/raw-frames/01-setup-raw.jpg",
+          "points": "Balanced starting shape with a repeatable base. Keep the head quiet before the toss.",
+          "aiNote": "AI diagnosis: setup is usable; keep the start rhythm calm before the toss begins.",
+          "detections": [
+            {
+              "label": "Base stability",
+              "value": "Stable stance",
+              "status": "good"
+            },
+            {
+              "label": "Head position",
+              "value": "Quiet before toss",
+              "status": "good"
+            },
+            {
+              "label": "Ready rhythm",
+              "value": "Slightly rushed",
+              "status": "issue"
+            }
+          ]
+        },
+        {
+          "time": "0.40",
+          "phase": "Toss",
+          "score": 74,
+          "status": "issue",
+          "image": "./exports/diary-poc-keypoints/keypoint-overlays/02-toss-keypoints.jpg",
+          "rawFrame": "./exports/diary-poc-keypoints/raw-frames/02-toss-raw.jpg",
+          "points": "Toss arm should extend fully while the racket stays organized instead of dropping early.",
+          "aiNote": "Coach cue match: keep the racket up during the toss and let the drop happen after ball release.",
+          "detections": [
+            {
+              "label": "Toss arm extension",
+              "value": "Needs fuller reach",
+              "status": "issue"
+            },
+            {
+              "label": "Racket position",
+              "value": "Drops early",
+              "status": "issue"
+            },
+            {
+              "label": "Ball release timing",
+              "value": "Usable",
+              "status": "good"
+            }
+          ]
+        },
+        {
+          "time": "0.66",
+          "phase": "Load",
+          "score": 68,
+          "status": "issue",
+          "image": "./exports/diary-poc-keypoints/keypoint-overlays/03-load-keypoints.jpg",
+          "rawFrame": "./exports/diary-poc-keypoints/raw-frames/03-load-raw.jpg",
+          "points": "Legs and hips need to load before the racket drop so the serve does not become arm-dominant.",
+          "aiNote": "AI diagnosis: watch for early racket drop while the knees are still bending.",
+          "detections": [
+            {
+              "label": "Knee bend",
+              "value": "Present",
+              "status": "good"
+            },
+            {
+              "label": "Racket drop timing",
+              "value": "Too early",
+              "status": "issue"
+            },
+            {
+              "label": "Kinetic chain",
+              "value": "Legs-to-racket sequence breaks",
+              "status": "issue"
+            }
+          ]
+        },
+        {
+          "time": "0.96",
+          "phase": "Racket Drop",
+          "score": 71,
+          "status": "issue",
+          "image": "./exports/diary-poc-keypoints/keypoint-overlays/04-racket-drop-keypoints.jpg",
+          "rawFrame": "./exports/diary-poc-keypoints/raw-frames/04-racket-drop-raw.jpg",
+          "points": "Racket drop should connect to the upward drive, not start as a separate arm-only move.",
+          "aiNote": "AI diagnosis: racket drop is disconnected from the lower-body drive.",
+          "detections": [
+            {
+              "label": "Racket path",
+              "value": "Disconnected",
+              "status": "issue"
+            },
+            {
+              "label": "Leg drive start",
+              "value": "Late",
+              "status": "issue"
+            },
+            {
+              "label": "Shoulder line",
+              "value": "Usable",
+              "status": "good"
+            }
+          ]
+        },
+        {
+          "time": "1.19",
+          "phase": "Acceleration",
+          "score": 76,
+          "status": "issue",
+          "image": "./exports/diary-poc-keypoints/keypoint-overlays/05-acceleration-keypoints.jpg",
+          "rawFrame": "./exports/diary-poc-keypoints/raw-frames/05-acceleration-raw.jpg",
+          "points": "Lead with the edge or back of the racket; avoid opening the racket face too early.",
+          "aiNote": "AI diagnosis: racket approach opens early, reducing late snap.",
+          "detections": [
+            {
+              "label": "Racket face",
+              "value": "Opens early",
+              "status": "issue"
+            },
+            {
+              "label": "Arm extension",
+              "value": "Improving",
+              "status": "good"
+            },
+            {
+              "label": "Upward drive",
+              "value": "Needs more lift",
+              "status": "issue"
+            }
+          ]
+        },
+        {
+          "time": "1.38",
+          "phase": "Contact",
+          "score": 72,
+          "status": "issue",
+          "image": "./exports/diary-poc-keypoints/keypoint-overlays/06-contact-keypoints.jpg",
+          "rawFrame": "./exports/diary-poc-keypoints/raw-frames/06-contact-raw.jpg",
+          "points": "Reach higher through contact with the wrist clearly above the shoulder and the body driving upward.",
+          "aiNote": "Coach cue match: improve contact height and toss position to create more upward leverage.",
+          "detections": [
+            {
+              "label": "Wrist above shoulder",
+              "value": "Borderline",
+              "status": "issue"
+            },
+            {
+              "label": "Body drive",
+              "value": "Moving upward",
+              "status": "good"
+            },
+            {
+              "label": "Contact height",
+              "value": "Needs taller reach",
+              "status": "issue"
+            }
+          ]
+        },
+        {
+          "time": "1.61",
+          "phase": "Deceleration",
+          "score": 70,
+          "status": "issue",
+          "image": "./exports/diary-poc-keypoints/keypoint-overlays/07-deceleration-keypoints.jpg",
+          "rawFrame": "./exports/diary-poc-keypoints/raw-frames/07-deceleration-raw.jpg",
+          "points": "Leg drive should peak before contact so power transfers up the chain before deceleration.",
+          "aiNote": "AI diagnosis: leg drive arrives late, after the racket has already dropped.",
+          "detections": [
+            {
+              "label": "Leg-drive timing",
+              "value": "Late",
+              "status": "issue"
+            },
+            {
+              "label": "Energy transfer",
+              "value": "Interrupted",
+              "status": "issue"
+            },
+            {
+              "label": "Arm path",
+              "value": "Mostly complete",
+              "status": "good"
+            }
+          ]
+        },
+        {
+          "time": "1.85",
+          "phase": "Finish",
+          "score": 84,
+          "status": "good",
+          "image": "./exports/diary-poc-keypoints/keypoint-overlays/08-finish-keypoints.jpg",
+          "rawFrame": "./exports/diary-poc-keypoints/raw-frames/08-finish-raw.jpg",
+          "points": "Land with a softer front knee and complete the follow-through across the body.",
+          "aiNote": "AI diagnosis: finish balance is the proof that the chain transferred cleanly.",
+          "detections": [
+            {
+              "label": "Follow-through",
+              "value": "Complete path",
+              "status": "good"
+            },
+            {
+              "label": "Landing balance",
+              "value": "Mostly stable",
+              "status": "good"
+            },
+            {
+              "label": "Front knee",
+              "value": "Could absorb softer",
+              "status": "issue"
+            }
+          ]
+        }
+      ],
+      "coach": "Toss / Early Racket Movement: Keep the racket up and roughly vertical until the ball has clearly left the hand.\nLoad: Legs should load first; avoid dropping the racket before the body starts driving upward.\nContact: Reach taller through contact with the wrist above the shoulder.\nFinish: Land softly and stay balanced after the swing.",
+      "diagnosis": "Overall diagnosis: the serve has a workable setup, but the main training priority is sequence: racket organized during toss, legs loading before racket drop, and a taller contact point.\n\nBest current foundation: setup and finish are stable enough to build from.\nNeeds attention: toss-to-load timing breaks the kinetic chain and can make the serve arm-dominant.",
+      "coachAi": "Priority 1: Keep the racket organized during toss; the detection shows early racket drop.\nPriority 2: Load legs before racket drop so the kinetic chain is not arm-dominant.\nPriority 3: Reach taller at contact with wrist clearly above shoulder.\nStrong point: setup and finish are usable foundations to build from.",
+      "metrics": {
+        "score": 78,
+        "racketSpeed": 68,
+        "ballSpeed": 83,
+        "contactHeight": 1.31,
+        "trackingQuality": "PoC export",
+        "dominantHand": "Left"
+      }
+    }
+  ]
+}

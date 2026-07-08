@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Tennis Training Diary</title>
+    <link rel="stylesheet" href="./training-diary.css?v=20260707-diary-raw-video" />
+  </head>
+  <body class="auth-locked">
+    <section class="auth-gate" id="authGate" aria-label="Password required">
+      <form class="auth-card" id="authForm">
+        <p class="eyebrow">Private Diary</p>
+        <h1>Tennis Training Diary</h1>
+        <p class="auth-copy">Enter the access password to view training notes, videos, and AI motion-analysis details.</p>
+        <label>
+          Password
+          <input id="diaryPassword" type="password" autocomplete="current-password" required />
+        </label>
+        <button class="primary-action" type="submit">Unlock Diary</button>
+        <p class="auth-error" id="authError" role="alert"></p>
+      </form>
+    </section>
+
+    <main class="diary-shell">
+      <header class="diary-topbar">
+        <div>
+          <p class="eyebrow">Tennis Motion Lab</p>
+          <h1>Tennis Training Diary</h1>
+        </div>
+        <nav class="diary-nav" aria-label="Page navigation">
+          <a href="./index.html">Motion Analysis</a>
+          <a href="https://docs.google.com/document/d/1FNUTsRp4uhDGAdr9xAgUfjlMPYjVzBI0rxVAcobTe0k/edit?usp=sharing" target="_blank" rel="noreferrer">Coach Notes</a>
+          <button class="nav-button" id="lockDiaryButton" type="button">Lock</button>
+        </nav>
+      </header>
+
+      <section class="diary-layout">
+        <aside class="filters-panel" aria-label="Filter training diary entries">
+          <div class="panel-section calendar-panel">
+            <div class="calendar-head">
+              <button class="calendar-nav-button" id="prevMonthButton" type="button" aria-label="Previous month">‹</button>
+              <h2 id="calendarMonth">Training Calendar</h2>
+              <button class="calendar-nav-button" id="nextMonthButton" type="button" aria-label="Next month">›</button>
+            </div>
+            <div class="calendar-weekdays" aria-hidden="true">
+              <span>Sun</span>
+              <span>Mon</span>
+              <span>Tue</span>
+              <span>Wed</span>
+              <span>Thu</span>
+              <span>Fri</span>
+              <span>Sat</span>
+            </div>
+            <div class="training-calendar" id="trainingCalendar" aria-label="Training dates calendar"></div>
+            <div class="calendar-legend">
+              <span><i class="legend-training"></i>Training data</span>
+            </div>
+          </div>
+
+          <div class="panel-section">
+            <h2>Filters</h2>
+            <label>
+              Date
+              <input id="dateFilter" type="date" />
+            </label>
+            <label>
+              Search
+              <input id="searchFilter" type="search" placeholder="serve, toss, low-to-high" />
+            </label>
+            <label>
+              Training focus
+              <select id="strokeFilter">
+                <option value="all">All</option>
+                <option value="serve">Serve</option>
+                <option value="forehand">Forehand</option>
+                <option value="backhand">Backhand</option>
+                <option value="volley">Volley</option>
+                <option value="footwork">Footwork</option>
+              </select>
+            </label>
+            <button class="secondary-action" id="clearFiltersButton" type="button">Clear Filters</button>
+          </div>
+
+          <div class="panel-section source-note">
+            <h2>Entry Source</h2>
+            <p>New diary entries are created from Motion Analysis using the Export to Diary option after analysis is complete.</p>
+            <a class="source-link-button" href="./index.html">Open Motion Analysis</a>
+          </div>
+        </aside>
+
+        <section class="diary-main" aria-label="Training diary entries">
+          <div class="summary-strip" id="summaryStrip"></div>
+          <div class="diary-list" id="diaryList"></div>
+        </section>
+      </section>
+    </main>
+
+    <template id="diaryCardTemplate">
+      <article class="diary-card">
+        <div class="card-head">
+          <div>
+            <p class="card-date"></p>
+            <h2 class="card-title"></h2>
+          </div>
+          <div class="card-actions">
+            <span class="stroke-pill"></span>
+          </div>
+        </div>
+        <div class="video-link-wrap"></div>
+        <section class="keyframes-section">
+          <div class="section-title-row">
+            <h3>Key Frames & Key Points</h3>
+            <span class="keyframe-count"></span>
+          </div>
+          <div class="keyframe-list"></div>
+        </section>
+        <div class="analysis-grid">
+          <section>
+            <h3>Coach Technical Points</h3>
+            <div class="analysis-text coach-text"></div>
+          </section>
+          <section>
+            <h3>AI Diagnosis</h3>
+            <div class="analysis-text diagnosis-text"></div>
+          </section>
+          <section>
+            <h3>AI Comments based on lesson notes</h3>
+            <div class="analysis-text coach-ai-text"></div>
+          </section>
+        </div>
+      </article>
+    </template>
+
+    <script src="./training-diary.js?v=20260707-diary-raw-video"></script>
+  </body>
+</html>

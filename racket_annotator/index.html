@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Racket Segmentation Annotator</title>
+    <link rel="stylesheet" href="./styles.css?v=20260703-racket-annotator" />
+  </head>
+  <body>
+    <header class="app-header">
+      <div>
+        <span class="eyebrow">Tennis Motion Lab</span>
+        <h1>Racket Segmentation Annotator</h1>
+      </div>
+      <div class="status-pill" id="statusText">No video loaded</div>
+    </header>
+
+    <main class="workspace">
+      <aside class="panel controls-panel">
+        <section>
+          <h2>Video</h2>
+          <label class="file-drop">
+            <input id="videoInput" type="file" accept="video/*" />
+            <span>Import video</span>
+          </label>
+          <div class="file-name" id="fileName">No file selected</div>
+          <div class="control-grid">
+            <button id="playButton" type="button">Play</button>
+            <button id="captureButton" type="button">Capture Frame</button>
+            <button id="prevFrameButton" type="button">Prev Frame</button>
+            <button id="nextFrameButton" type="button">Next Frame</button>
+          </div>
+          <label>
+            Frame step
+            <input id="frameStepInput" type="number" min="1" max="30" value="4" />
+          </label>
+          <label>
+            Auto sample every
+            <input id="sampleEveryInput" type="number" min="3" max="120" value="12" />
+          </label>
+          <button id="autoSampleButton" type="button">Auto Sample Frames</button>
+        </section>
+
+        <section>
+          <h2>Zoom</h2>
+          <p class="hint">Zoom into the racket area before labeling. Saved polygon points stay in full-frame coordinates.</p>
+          <label>
+            Zoom
+            <input id="zoomInput" type="range" min="1" max="5" step="0.05" value="1" />
+          </label>
+          <label>
+            Pan X
+            <input id="panXInput" type="range" min="0" max="1" step="0.005" value="0.5" />
+          </label>
+          <label>
+            Pan Y
+            <input id="panYInput" type="range" min="0" max="1" step="0.005" value="0.5" />
+          </label>
+          <button id="resetViewButton" type="button">Reset View</button>
+        </section>
+
+        <section>
+          <h2>Polygon</h2>
+          <p class="hint">Click around the visible racket. Double-click or use Close Polygon when finished.</p>
+          <div class="control-grid">
+            <button id="undoPointButton" type="button">Undo Point</button>
+            <button id="closePolygonButton" type="button">Close Polygon</button>
+            <button id="clearPolygonButton" type="button">Clear Frame</button>
+            <button id="deleteFrameButton" type="button">Delete Frame</button>
+          </div>
+          <label>
+            Label
+            <select id="labelSelect">
+              <option value="tennis_racket">tennis_racket</option>
+            </select>
+          </label>
+        </section>
+
+        <section>
+          <h2>Dataset</h2>
+          <div class="control-grid">
+            <button id="saveProjectButton" type="button">Save Project JSON</button>
+            <label class="button-like">
+              <input id="loadProjectInput" type="file" accept="application/json" />
+              Load Project
+            </label>
+          </div>
+          <p class="hint">Use the saved JSON with the converter in <code>model_pipeline/scripts</code>.</p>
+        </section>
+      </aside>
+
+      <section class="stage-panel">
+        <div class="video-card">
+          <div class="card-title">
+            <h2>Current Video Frame</h2>
+            <span id="timeText">0.00s</span>
+          </div>
+          <div class="canvas-wrap">
+            <video id="video" playsinline muted></video>
+            <canvas id="canvas" width="960" height="540"></canvas>
+          </div>
+        </div>
+
+        <div class="frames-card">
+          <div class="card-title">
+            <h2>Annotated Frames</h2>
+            <span id="frameCountText">0 frames</span>
+          </div>
+          <div class="frame-strip" id="frameStrip"></div>
+        </div>
+      </section>
+    </main>
+
+    <script src="./annotator.js?v=20260703-racket-annotator"></script>
+  </body>
+</html>

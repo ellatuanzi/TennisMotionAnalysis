@@ -1,0 +1,23 @@
+.DS_Store
+
+# Local Python and package environments
+.venv/
+.venv-*/
+.python_deps/
+__pycache__/
+*.py[cod]
+
+# Frontend dependencies
+node_modules/
+
+# Tool caches and local runtime state
+.matplotlib/
+.ultralytics/
+
+# Generated training outputs and experiment runs
+runs/
+model_pipeline/runs/
+*.cache
+
+# Temporary or exported ad hoc artifacts
+*.log

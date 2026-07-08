@@ -1,0 +1,5 @@
+path: /Users/qingcai/Documents/网球运动分析/model_pipeline/datasets/racket_seg
+train: images/train
+val: images/val
+names:
+  0: tennis_racket
