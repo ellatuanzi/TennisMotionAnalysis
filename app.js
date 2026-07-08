@@ -149,6 +149,7 @@ const dom = {
 const pocPreset = {
   playerVideo: "./assets/atticus-07082026-poc.mov",
   playerLabel: "IMG_1894.MOV (PoC)",
+  playerCrop: { zoom: 2.2, x: 0.55, y: 0.58 },
   referenceTitle: "Super slow-motion Forehand Video.(Step by step)",
   referenceUrl: "https://www.youtube.com/watch?v=jHCSCBb9IW4",
   referenceStart: "00:00",
@@ -789,6 +790,7 @@ function loadPocPreset() {
   dom.childVideo.src = pocPreset.playerVideo;
   dom.childFileName.textContent = pocPreset.playerLabel;
   dom.childEmpty.classList.add("hidden");
+  setRoiControls(pocPreset.playerCrop);
   resetRoiConfirmation("Default PoC video loaded. Adjust crop if needed, then confirm the player video.");
   dom.coachingNotes.value = defaultCoachingNotes;
 
@@ -1231,6 +1233,18 @@ function getPlayerCropSource(video, options = {}) {
   };
 }
 
+function cropTargetRatioForRect(rect, options = {}) {
+  if (Number.isFinite(options.targetRatio)) {
+    return clamp(options.targetRatio, 0.35, 1.8);
+  }
+  if (Number.isFinite(options.cropTargetRatio)) {
+    return clamp(options.cropTargetRatio, 0.35, 1.8);
+  }
+  const ratio = Number(rect?.width) / Number(rect?.height);
+  if (Number.isFinite(ratio) && ratio > 0) return clamp(ratio, 0.35, 1.8);
+  return lastPlayerPreviewRatio;
+}
+
 function getPlayerRenderViewport(rect, crop) {
   const cropRatio = crop.width / crop.height;
   const frameRatio = rect.width / rect.height;
@@ -1282,7 +1296,7 @@ function drawCroppedPlayerVideo(options = {}) {
       return true;
     }
 
-    const crop = getPlayerCropSource(video, { targetRatio: options.cropTargetRatio });
+    const crop = getPlayerCropSource(video, { targetRatio: cropTargetRatioForRect(rect, options) });
     const viewport = getPlayerRenderViewport(rect, crop);
     ctx.drawImage(video, crop.x, crop.y, crop.width, crop.height, viewport.x, viewport.y, viewport.width, viewport.height);
     return true;
@@ -1292,7 +1306,7 @@ function drawCroppedPlayerVideo(options = {}) {
 }
 
 function sourceToPlayerFrame(point, video, rect, options = {}) {
-  const crop = getPlayerCropSource(video, { targetRatio: options.cropTargetRatio });
+  const crop = getPlayerCropSource(video, { targetRatio: cropTargetRatioForRect(rect, options) });
   const viewport = getPlayerRenderViewport(rect, crop);
   const sourceX = point[0] * (video.videoWidth || 1);
   const sourceY = point[1] * (video.videoHeight || 1);
@@ -1303,7 +1317,7 @@ function sourceToPlayerFrame(point, video, rect, options = {}) {
 }
 
 function playerFrameToPoseSource(point, video, rect) {
-  const crop = getPlayerCropSource(video);
+  const crop = getPlayerCropSource(video, { targetRatio: cropTargetRatioForRect(rect) });
   const viewport = getPlayerRenderViewport(rect, crop);
   const sourceX = crop.x + ((point.x - viewport.x) / viewport.width) * crop.width;
   const sourceY = crop.y + ((point.y - viewport.y) / viewport.height) * crop.height;
@@ -1314,7 +1328,7 @@ function playerFrameToPoseSource(point, video, rect) {
 }
 
 function sourceLengthToFrame(length, video, rect, axis = "x", options = {}) {
-  const crop = getPlayerCropSource(video, { targetRatio: options.cropTargetRatio });
+  const crop = getPlayerCropSource(video, { targetRatio: cropTargetRatioForRect(rect, options) });
   const viewport = getPlayerRenderViewport(rect, crop);
   const sourceSize = axis === "y" ? video.videoHeight || 1 : video.videoWidth || 1;
   const viewportSize = axis === "y" ? viewport.height : viewport.width;
@@ -1323,7 +1337,7 @@ function sourceLengthToFrame(length, video, rect, axis = "x", options = {}) {
 }
 
 function frameLengthToSource(length, video, rect, axis = "x") {
-  const crop = getPlayerCropSource(video);
+  const crop = getPlayerCropSource(video, { targetRatio: cropTargetRatioForRect(rect) });
   const viewport = getPlayerRenderViewport(rect, crop);
   const sourceSize = axis === "y" ? video.videoHeight || 1 : video.videoWidth || 1;
   const viewportSize = axis === "y" ? viewport.height : viewport.width;
@@ -3972,7 +3986,7 @@ function drawPose(canvas, video, seedOffset, color, options = {}) {
   const viewport = video === dom.childVideo
     ? { x: 0, y: 0, width: rect.width, height: rect.height }
     : getVideoViewport(video, rect);
-  const childCrop = video === dom.childVideo ? getPlayerCropSource(video, { targetRatio: cropTargetRatio }) : null;
+  const childCrop = video === dom.childVideo ? getPlayerCropSource(video, { targetRatio: cropTargetRatioForRect(rect, options) }) : null;
   const childRenderViewport = video === dom.childVideo ? getPlayerRenderViewport(rect, childCrop) : null;
   const isPointVisible = (name) => {
     if (!pose[name] || !Array.isArray(pose[name])) return false;

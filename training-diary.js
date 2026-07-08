@@ -3,7 +3,7 @@ const authStorageKey = "tennisMotionLab.trainingDiary.auth.v1";
 const authDurationMs = 1000 * 60 * 60 * 24 * 14;
 const passwordHash = "44101bd7e008971009a5c8365210ced92bd3f3d3ded74f20ea70868dae51de69";
 const urlParams = new URLSearchParams(window.location.search);
-const dataFile = urlParams.get("data") || "./diary-data.json";
+const dataFile = urlParams.get("data");
 
 const dom = {
   authGate: document.querySelector("#authGate"),
@@ -82,6 +82,15 @@ async function handleAuthSubmit(event) {
 
 async function loadEntries() {
   try {
+    const saved = JSON.parse(localStorage.getItem(storageKey) || "[]");
+    if (Array.isArray(saved) && saved.length) return saved;
+  } catch {
+    localStorage.removeItem(storageKey);
+  }
+
+  if (!dataFile) return [];
+
+  try {
     const response = await fetch(dataFile, { cache: "no-store" });
     if (response.ok) {
       const data = await response.json();
@@ -89,13 +98,6 @@ async function loadEntries() {
       if (Array.isArray(data.entries)) return data.entries;
     }
   } catch {
-    // Fall back to local exports while developing from file:// or if the JSON has not been published yet.
-  }
-  try {
-    const saved = JSON.parse(localStorage.getItem(storageKey) || "[]");
-    return Array.isArray(saved) ? saved : [];
-  } catch {
-    localStorage.removeItem(storageKey);
     return [];
   }
 }
