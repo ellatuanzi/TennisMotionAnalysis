@@ -312,6 +312,7 @@ let reviewVideoRendering = false;
 let lastPlayerPreviewRatio = 9 / 16;
 const reviewFallbackImageCache = new Map();
 const analysisStageImageCache = new Map();
+const editorFrameImageCache = new Map();
 const poseCorrections = new Map();
 const poseCorrectionSources = new Map();
 const ballAnchorFrames = new Set();
@@ -327,6 +328,7 @@ const poseRuntime = {
   trackedPose: null,
   editedPose: null,
   editedPoseFrame: null,
+  editorFrame: null,
   editMode: false,
   draggingPoint: null,
 };
@@ -810,6 +812,7 @@ function resetRoiConfirmation(message = "Adjust crop with sliders or the blue re
   poseRuntime.trackedPose = null;
   poseRuntime.editedPose = null;
   poseRuntime.editedPoseFrame = null;
+  poseRuntime.editorFrame = null;
   poseRuntime.editMode = false;
   poseRuntime.draggingPoint = null;
   keyframes = [];
@@ -880,6 +883,7 @@ function confirmRoi() {
   poseRuntime.trackedPose = null;
   poseRuntime.editedPose = null;
   poseRuntime.editedPoseFrame = null;
+  poseRuntime.editorFrame = null;
   poseRuntime.editMode = false;
   poseRuntime.draggingPoint = null;
   workflowStepOverride = "frames";
@@ -907,6 +911,35 @@ function canvasPointFromEvent(event) {
     y: event.clientY - rect.top,
     rect,
   };
+}
+
+function keyframeEditorImageSource(frame) {
+  if (!poseRuntime.editMode || !dom.childVideo.paused || !keyframes.length) return "";
+  const safeFrame = clampFrameIndex(frame, dom.childVideo);
+  const selected = keyframes[selectedKeyframeIndex];
+  const exact = keyframes.find((keyframe) => keyframeToFrameIndex(keyframe) === safeFrame);
+  const match = exact || (
+    selected && keyframeToFrameIndex(selected) === safeFrame ? selected : null
+  );
+  if (!match) return "";
+  return match.rawImage
+    || fallbackRawStageSnapshotForStage({ phase: match.phase })
+    || match.image
+    || "";
+}
+
+function editorFrameImageForCurrentFrame() {
+  const source = keyframeEditorImageSource(currentEditorFrameIndex());
+  if (!source) return null;
+  const cached = editorFrameImageCache.get(source);
+  if (cached?.complete && cached.naturalWidth > 0) return cached;
+  if (!cached) {
+    const image = new Image();
+    image.onload = () => drawPoseLoop();
+    image.src = source;
+    editorFrameImageCache.set(source, image);
+  }
+  return null;
 }
 
 function positionRoiDragBox(box) {
@@ -1269,6 +1302,12 @@ function drawCroppedPlayerVideo(options = {}) {
   ctx.clearRect(0, 0, rect.width, rect.height);
   ctx.fillStyle = "#14211d";
   ctx.fillRect(0, 0, rect.width, rect.height);
+
+  const editorImage = options.canvas ? null : editorFrameImageForCurrentFrame();
+  if (editorImage) {
+    ctx.drawImage(editorImage, 0, 0, rect.width, rect.height);
+    return true;
+  }
 
   if (!video.src || video.readyState < 2 || !video.videoWidth || !video.videoHeight) return false;
 
@@ -1778,7 +1817,7 @@ function racketBoxToFrame(box, video, rect, options = {}) {
 
 function racketSegmentationForFrame(pose, video) {
   if (video !== dom.childVideo) return pose?.racketBox?.segmentationPolygon || null;
-  const frame = currentFrameIndex(video);
+  const frame = currentEditorFrameIndex();
   const detectedBox = objectDetectionRuntime.racketFrameDetections.get(frame);
   return detectedBox?.segmentationPolygon
     || pose?.racketBox?.segmentationPolygon
@@ -1787,7 +1826,7 @@ function racketSegmentationForFrame(pose, video) {
 
 function requestRacketSegmentationForCurrentFrame() {
   if (!poseRuntime.editMode || !roiRuntime.confirmed || poseRuntime.draggingPoint) return;
-  const frame = currentFrameIndex(dom.childVideo);
+  const frame = currentEditorFrameIndex();
   const detectedBox = objectDetectionRuntime.racketFrameDetections.get(frame);
   if (detectedBox?.segmentationPolygon?.length >= 3) return;
   const now = performance.now();
@@ -1949,6 +1988,20 @@ function smoothPose(previous, next, alpha = 0.62) {
 function currentFrameIndex(video = dom.childVideo) {
   const fps = Math.max(1, Number(dom.fpsInput.value || 60));
   return clampFrameIndex(Math.round((video.currentTime || 0) * fps), video);
+}
+
+function currentEditorFrameIndex() {
+  if (poseRuntime.editMode && Number.isFinite(Number(poseRuntime.editorFrame))) {
+    return clampFrameIndex(poseRuntime.editorFrame, dom.childVideo);
+  }
+  return currentFrameIndex(dom.childVideo);
+}
+
+function setEditorFrame(frame) {
+  const safeFrame = clampFrameIndex(frame, dom.childVideo);
+  poseRuntime.editorFrame = safeFrame;
+  updateFrameReadout(safeFrame);
+  return safeFrame;
 }
 
 function reliableVideoDuration(video = dom.childVideo) {
@@ -2636,7 +2689,7 @@ function updateTrackingQualityPanel() {
     dom.trajectorySummary.innerHTML = "";
     return;
   }
-  const frame = currentFrameIndex();
+  const frame = currentEditorFrameIndex();
   const quality = trackingQualityForFrame(frame);
   dom.trackingQualityScore.textContent = `Frame ${frame} quality ${quality.score}`;
   dom.trackingQualityScore.className = quality.level;
@@ -2687,8 +2740,8 @@ function applyCurrentFrameRacketDetection(pose, frameIndex = currentFrameIndex(d
 }
 
 function currentFramePose() {
-  const frame = currentFrameIndex(dom.childVideo);
-  const sourcePose = correctionForVideoTime()
+  const frame = currentEditorFrameIndex();
+  const sourcePose = correctionForFrameIndex(frame)
     || poseRuntime.childPose
     || (poseRuntime.editMode ? null : createPose(dom.childVideo, 0));
   if (!sourcePose) return {};
@@ -2700,7 +2753,7 @@ function currentFramePose() {
 }
 
 function currentEditablePose() {
-  const frame = currentFrameIndex(dom.childVideo);
+  const frame = currentEditorFrameIndex();
   const editablePoseForFrame = poseRuntime.editedPoseFrame === frame
     ? poseRuntime.editedPose
     : null;
@@ -2709,7 +2762,7 @@ function currentEditablePose() {
 
 function setEditedPoseForCurrentFrame(pose = currentFramePose()) {
   poseRuntime.editedPose = clonePose(pose);
-  poseRuntime.editedPoseFrame = currentFrameIndex(dom.childVideo);
+  poseRuntime.editedPoseFrame = currentEditorFrameIndex();
   syncRacketBoxControls();
 }
 
@@ -2720,10 +2773,10 @@ function refreshEditablePoseFromFrame() {
 
 function refreshRacketDetectionForCurrentEditFrame() {
   if (!poseRuntime.editMode || poseRuntime.draggingPoint || !roiRuntime.confirmed) return;
-  const frame = currentFrameIndex(dom.childVideo);
+  const frame = currentEditorFrameIndex();
   detectRacketWithYolo(dom.childVideo, { force: true }).then(() => {
     if (!poseRuntime.editMode || poseRuntime.draggingPoint) return;
-    if (currentFrameIndex(dom.childVideo) !== frame) return;
+    if (currentEditorFrameIndex() !== frame) return;
     setEditedPoseForCurrentFrame(currentFramePose());
     drawPoseLoop();
   }).catch(() => {});
@@ -2742,7 +2795,7 @@ function scheduleAutoSmoothTrack(reason = "Frame correction updated.", localFram
   }, 420);
 }
 
-function markFrameNeedsSmooth(frame = currentFrameIndex()) {
+function markFrameNeedsSmooth(frame = currentEditorFrameIndex()) {
   pendingSmoothFrame = frame;
   keypointTrackingReady = false;
 }
@@ -2758,7 +2811,7 @@ function smoothPendingFrameBeforeLeaving(nextFrame = null) {
 
 function saveCurrentPoseCorrection(source = "userAnchor", options = {}) {
   if (!poseRuntime.editedPose) return;
-  const frame = currentFrameIndex();
+  const frame = currentEditorFrameIndex();
   if (poseRuntime.editedPoseFrame !== frame) {
     refreshEditablePoseFromFrame();
   }
@@ -2839,7 +2892,8 @@ function syncKeypointVisibilityControls() {
 
 function toggleSelectedKeypointVisibility() {
   if (!poseRuntime.editMode) return;
-  if (!poseRuntime.editedPose || poseRuntime.editedPoseFrame !== currentFrameIndex()) {
+  const frame = currentEditorFrameIndex();
+  if (!poseRuntime.editedPose || poseRuntime.editedPoseFrame !== frame) {
     setEditedPoseForCurrentFrame(currentEditablePose());
   }
   const name = dom.keypointSelect.value;
@@ -2847,7 +2901,7 @@ function toggleSelectedKeypointVisibility() {
   setKeypointHidden(poseRuntime.editedPose, name, !hidden);
   saveCurrentPoseCorrection();
   syncKeypointVisibilityControls();
-  dom.roiStatus.textContent = `${name} ${hidden ? "shown" : "hidden"} on frame ${currentFrameIndex()}.`;
+  dom.roiStatus.textContent = `${name} ${hidden ? "shown" : "hidden"} on frame ${frame}.`;
 }
 
 async function saveKeyframeAnchor() {
@@ -2857,10 +2911,10 @@ async function saveKeyframeAnchor() {
   }
   dom.childVideo.pause();
   if (!poseRuntime.editMode) toggleKeypointEdit();
-  if (!poseRuntime.editedPose || poseRuntime.editedPoseFrame !== currentFrameIndex()) {
+  const frame = currentEditorFrameIndex();
+  if (!poseRuntime.editedPose || poseRuntime.editedPoseFrame !== frame) {
     setEditedPoseForCurrentFrame(currentEditablePose());
   }
-  const frame = currentFrameIndex();
   if (dom.keypointSelect?.value === "ball" && Array.isArray(poseRuntime.editedPose.ball)) {
     ballAnchorFrames.add(frame);
     poseRuntime.editedPose.ballSource = "manualBallAnchor";
@@ -3238,10 +3292,11 @@ async function generateSmoothTrack(options = {}) {
 
 function applyRacketBoxControls(event) {
   if (!poseRuntime.editMode) return;
-  if (!poseRuntime.editedPose || poseRuntime.editedPoseFrame !== currentFrameIndex()) {
+  const frame = currentEditorFrameIndex();
+  if (!poseRuntime.editedPose || poseRuntime.editedPoseFrame !== frame) {
     setEditedPoseForCurrentFrame(currentEditablePose());
   }
-  racketManualFrames.add(currentFrameIndex());
+  racketManualFrames.add(frame);
   const box = normalizeRacketBox(poseRuntime.editedPose.racketBox);
   const target = event?.currentTarget;
   const nextBox = { ...box, confidence: 0.96 };
@@ -3253,15 +3308,18 @@ function applyRacketBoxControls(event) {
   poseRuntime.editedPose.racketBox = normalizeRacketBox(nextBox);
   dom.keypointSelect.value = "racketBox";
   saveCurrentPoseCorrection("userAnchor", { autoSmooth: false, smoothOnFrameChange: true });
-  dom.roiStatus.textContent = `Racket box updated on frame ${currentFrameIndex()}. Smooth will run when you change frames.`;
+  dom.roiStatus.textContent = `Racket box updated on frame ${frame}. Smooth will run when you change frames.`;
   drawPoseLoop();
 }
 
 function syncFrameScrubber() {
-  if (!dom.frameScrubber || !dom.childVideo.duration) return;
-  const totalFrames = totalFrameCount(dom.childVideo);
-  const frame = clampFrameIndex(currentFrameIndex(dom.childVideo), dom.childVideo);
-  dom.frameScrubber.max = String(maxFrameIndex(dom.childVideo));
+  if (!dom.frameScrubber) return;
+  const keyframeMax = keyframes.reduce((max, keyframe) => Math.max(max, keyframeToFrameIndex(keyframe)), 0);
+  const totalFrames = Math.max(totalFrameCount(dom.childVideo), keyframeMax + 1, Number(dom.frameScrubber.max || 0) + 1);
+  const frame = poseRuntime.editMode && dom.childVideo.paused
+    ? currentEditorFrameIndex()
+    : clampFrameIndex(currentFrameIndex(dom.childVideo), dom.childVideo);
+  dom.frameScrubber.max = String(Math.max(0, totalFrames - 1));
   dom.frameScrubber.value = String(frame);
   if (dom.frameNumber) dom.frameNumber.textContent = String(frame);
   if (dom.frameTotal) dom.frameTotal.textContent = String(totalFrames);
@@ -3275,6 +3333,26 @@ function syncFrameScrubber() {
   syncRacketBoxControls();
   updateTrackingQualityPanel();
   updateEditPlaybackButton();
+}
+
+function displayedEditorFrame() {
+  if (poseRuntime.editMode && Number.isFinite(Number(poseRuntime.editorFrame))) {
+    return currentEditorFrameIndex();
+  }
+  const value = Number(dom.frameScrubber?.value);
+  return Number.isFinite(value) ? Math.max(0, Math.round(value)) : currentFrameIndex(dom.childVideo);
+}
+
+function updateFrameReadout(frame) {
+  const safeFrame = Math.max(0, Math.round(Number(frame) || 0));
+  const keyframeMax = keyframes.reduce((max, keyframe) => Math.max(max, keyframeToFrameIndex(keyframe)), 0);
+  const totalFrames = Math.max(totalFrameCount(dom.childVideo), keyframeMax + 1, safeFrame + 1);
+  if (dom.frameScrubber) {
+    dom.frameScrubber.max = String(Math.max(0, totalFrames - 1));
+    dom.frameScrubber.value = String(safeFrame);
+  }
+  if (dom.frameNumber) dom.frameNumber.textContent = String(safeFrame);
+  if (dom.frameTotal) dom.frameTotal.textContent = String(totalFrames);
 }
 
 function nearestKeypoint(pointer) {
@@ -3354,6 +3432,7 @@ function toggleKeypointEdit() {
   if (poseRuntime.editMode) {
     const keyframeOnly = isKeyframeOnlyCorrectionMode();
     dom.childVideo.pause();
+    poseRuntime.editorFrame = currentFrameIndex(dom.childVideo);
     syncFrameScrubber();
     setEditedPoseForCurrentFrame(currentEditablePose());
     poseRuntime.draggingPoint = null;
@@ -3372,6 +3451,7 @@ function toggleKeypointEdit() {
     saveCurrentPoseCorrection();
     poseRuntime.editedPose = null;
     poseRuntime.editedPoseFrame = null;
+    poseRuntime.editorFrame = null;
     poseRuntime.draggingPoint = null;
     dom.editKeyframeAnchorsButton?.classList.remove("active");
     dom.editKeypointsButton.classList.remove("active");
@@ -3389,7 +3469,8 @@ function toggleKeypointEdit() {
 function startKeypointDrag(event) {
   if (event.defaultPrevented) return;
   if (!poseRuntime.editMode || !roiRuntime.confirmed) return;
-  if (!poseRuntime.editedPose || poseRuntime.editedPoseFrame !== currentFrameIndex()) {
+  const frame = currentEditorFrameIndex();
+  if (!poseRuntime.editedPose || poseRuntime.editedPoseFrame !== frame) {
     refreshEditablePoseFromFrame();
   }
   const pointer = canvasPointFromEvent(normalizePointerEvent(event));
@@ -3413,7 +3494,7 @@ function startKeypointDrag(event) {
 
   poseRuntime.draggingPoint = keypoint;
   if (keypoint.startsWith("racket")) {
-    racketManualFrames.add(currentFrameIndex());
+    racketManualFrames.add(frame);
     const displayedRacketBox = visualRacketBoxForFrame(poseRuntime.editedPose, dom.childVideo);
     if (displayedRacketBox) {
       poseRuntime.editedPose.racketBox = normalizeRacketBox(displayedRacketBox);
@@ -3535,42 +3616,16 @@ function endKeypointDrag() {
   }
 }
 
-function seekToScrubbedFrame() {
-  if (!dom.childVideo.duration || !Number.isFinite(dom.childVideo.duration)) return;
-  const fps = Math.max(1, Number(dom.fpsInput.value || 60));
+async function seekToScrubbedFrame() {
   const frame = clampFrameIndex(Number(dom.frameScrubber.value || 0), dom.childVideo);
   smoothPendingFrameBeforeLeaving(frame);
-  dom.childVideo.pause();
-  dom.childVideo.currentTime = clamp(frame / fps, 0, dom.childVideo.duration);
-  if (poseRuntime.editMode) {
-    window.setTimeout(() => {
-      refreshEditablePoseFromFrame();
-      refreshRacketDetectionForCurrentEditFrame();
-      syncRacketBoxControls();
-      dom.roiStatus.textContent = `Frame ${currentFrameIndex()} selected. Drag, nudge, or use racket box sliders.`;
-      drawPoseLoop();
-    }, 80);
-  }
+  await goToFrameForCorrection(frame, `Frame ${frame} selected. Drag, nudge, or use racket box sliders.`, { scroll: false });
 }
 
 async function stepEditFrame(direction) {
-  if (!dom.childVideo.duration || !Number.isFinite(dom.childVideo.duration)) return;
-  dom.childVideo.pause();
-  const fps = Math.max(1, Number(dom.fpsInput.value || 60));
-  const nextFrame = clampFrameIndex(currentFrameIndex(dom.childVideo) + direction, dom.childVideo);
+  const nextFrame = clampFrameIndex(displayedEditorFrame() + direction, dom.childVideo);
   smoothPendingFrameBeforeLeaving(nextFrame);
-  dom.childVideo.currentTime = clamp(
-    nextFrame / fps,
-    0,
-    dom.childVideo.duration,
-  );
-  await waitForVideoSeek(dom.childVideo);
-  await detectChildPose(dom.childVideo, { force: true }).catch(() => {});
-  refreshEditablePoseFromFrame();
-  refreshRacketDetectionForCurrentEditFrame();
-  syncFrameScrubber();
-  syncRacketBoxControls();
-  drawPoseLoop();
+  await goToFrameForCorrection(nextFrame, `Frame ${nextFrame} selected. Drag, nudge, or use racket box sliders.`, { scroll: false });
 }
 
 async function goToNextKeyframe() {
@@ -3578,7 +3633,7 @@ async function goToNextKeyframe() {
     dom.roiStatus.textContent = "No key frames yet. Auto detect or add key frames first.";
     return;
   }
-  const current = currentFrameIndex(dom.childVideo);
+  const current = displayedEditorFrame();
   const ordered = keyframes
     .map((keyframe, index) => ({
       index,
@@ -3612,7 +3667,7 @@ async function goToSuggestedAnchorFrame() {
   await goToFrameForCorrection(suggestedAnchorFrame, `Recommended frame ${suggestedAnchorFrame} selected. Fix keypoints, racket, or ball here, then Save Key Frame Anchor.`);
 }
 
-async function goToFrameForCorrection(frameNumber, message = "") {
+async function goToFrameForCorrection(frameNumber, message = "", options = {}) {
   await waitForVideoMetadata(dom.childVideo, 900).catch(() => false);
   const fps = Math.max(1, Number(dom.fpsInput.value || 60));
   const safeFrame = clampFrameIndex(frameNumber, dom.childVideo);
@@ -3621,16 +3676,17 @@ async function goToFrameForCorrection(frameNumber, message = "") {
   workflowStepOverride = "keypoints";
   if (!poseRuntime.editMode) toggleKeypointEdit();
   dom.childVideo.pause();
-  dom.childVideo.currentTime = clamp(targetTime, 0, Math.max(0, duration - 0.001));
-  await waitForVideoSeek(dom.childVideo, 900);
+  setEditorFrame(safeFrame);
+  await seekVideoToTime(dom.childVideo, clamp(targetTime, 0, Math.max(0, duration - 0.001)), 900).catch(() => {});
   await detectChildPose(dom.childVideo, { force: true }).catch(() => {});
   refreshEditablePoseFromFrame();
   refreshRacketDetectionForCurrentEditFrame();
-  syncFrameScrubber();
+  setEditorFrame(safeFrame);
   syncRacketBoxControls();
   updateTrackingQualityPanel();
   dom.roiStatus.textContent = message || `Frame ${safeFrame} selected. Fix keypoints, racket, or ball here, then save the frame.`;
-  dom.childFrame.scrollIntoView({ behavior: "smooth", block: "center" });
+  drawPoseLoop();
+  if (options.scroll !== false) dom.childFrame.scrollIntoView({ behavior: "smooth", block: "center" });
 }
 
 async function openSelectedKeyframeEditor() {
@@ -3682,10 +3738,12 @@ function toggleEditPlayback() {
   if (dom.childVideo.paused) {
     poseRuntime.editedPose = null;
     poseRuntime.editedPoseFrame = null;
+    poseRuntime.editorFrame = null;
     dom.childVideo.play();
     dom.roiStatus.textContent = "Playing. Pause on a frame, then drag or nudge keypoints.";
   } else {
     dom.childVideo.pause();
+    setEditorFrame(currentFrameIndex(dom.childVideo));
     refreshEditablePoseFromFrame();
     refreshRacketDetectionForCurrentEditFrame();
     syncRacketBoxControls();
@@ -3697,8 +3755,10 @@ function toggleEditPlayback() {
 function saveVisibleFrameCorrection() {
   if (!poseRuntime.editMode) return;
   dom.childVideo.pause();
+  setEditorFrame(displayedEditorFrame());
   if (!poseRuntime.editedPose) refreshEditablePoseFromFrame();
   saveCurrentPoseCorrection();
+  updateFrameReadout(currentEditorFrameIndex());
   dom.roiStatus.textContent = "Current frame correction saved. Continue playback or click Done Frame Editing.";
 }
 
@@ -3795,7 +3855,7 @@ function addRacketDetection(sourcePose) {
     return pose;
   }
 
-  const frameModelBox = objectDetectionRuntime.racketFrameDetections.get(currentFrameIndex(dom.childVideo));
+  const frameModelBox = objectDetectionRuntime.racketFrameDetections.get(currentEditorFrameIndex());
   if (objectDetectionRuntime.ready && frameModelBox) {
     pose.racketBox = normalizeRacketBox(frameModelBox);
     return pose;
@@ -5244,8 +5304,10 @@ function draftPayload() {
     keyframes: keyframes.map((frame) => ({
       phase: frame.phase,
       time: frame.time,
+      frameIndex: frame.frameIndex,
       note: frame.note,
       image: frame.image,
+      rawImage: frame.rawImage,
       pose: clonePose(frame.pose || {}),
     })),
     selectedKeyframeIndex,
@@ -5385,14 +5447,71 @@ function waitForVideoFrame(video, timeoutMs = 900, targetTime = null) {
   });
 }
 
+async function playVideoUntilTime(video, targetTime, timeoutMs = 2200) {
+  if (!video || !Number.isFinite(targetTime)) return;
+  const target = Math.max(0, targetTime);
+  if (target <= 0.003) {
+    video.pause();
+    return;
+  }
+  if ((video.currentTime || 0) > target + 0.04) {
+    video.load();
+    await waitForVideoMetadata(video, Math.min(timeoutMs, 900));
+  }
+  if ((video.currentTime || 0) >= target - 0.025) {
+    video.pause();
+    return;
+  }
+  const wasMuted = video.muted;
+  video.muted = true;
+  await video.play().catch(() => {});
+  await new Promise((resolve) => {
+    let settled = false;
+    const startedAt = performance.now();
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      video.pause();
+      video.muted = wasMuted;
+      resolve();
+    };
+    const tick = () => {
+      if (settled) return;
+      if ((video.currentTime || 0) >= target - 0.025 || performance.now() - startedAt > timeoutMs) {
+        finish();
+        return;
+      }
+      requestAnimationFrame(tick);
+    };
+    tick();
+  });
+}
+
 async function seekVideoToTime(video, targetTime, timeoutMs = 2200) {
   if (!video || !Number.isFinite(targetTime)) return;
   await waitForVideoMetadata(video, timeoutMs);
   const duration = reliableVideoDuration(video) || targetTime;
   const nextTime = clamp(targetTime, 0, Math.max(0, duration - 0.001));
+  const fps = Math.max(1, Number(dom.fpsInput?.value || 60));
+  const seekTolerance = Math.min(0.08, Math.max(0.008, 1.5 / fps));
   if (Math.abs((video.currentTime || 0) - nextTime) > 0.003) {
-    video.currentTime = nextTime;
+    if (typeof video.fastSeek === "function") {
+      try {
+        video.fastSeek(nextTime);
+      } catch {
+        video.currentTime = nextTime;
+      }
+    } else {
+      video.currentTime = nextTime;
+    }
     await waitForVideoSeek(video, timeoutMs);
+    if (Math.abs((video.currentTime || 0) - nextTime) > seekTolerance) {
+      video.currentTime = nextTime;
+      await waitForVideoSeek(video, Math.min(timeoutMs, 700));
+    }
+    if (Math.abs((video.currentTime || 0) - nextTime) > seekTolerance) {
+      await playVideoUntilTime(video, nextTime, timeoutMs);
+    }
   } else {
     await nextPaint();
   }
@@ -5789,6 +5908,9 @@ async function fallbackKeyframeCardsForStages(frames) {
       image: image
         || fallbackRawStageSnapshotForStage({ phase: frame.phase })
         || fallbackStageSnapshotForStage({ phase: frame.phase }),
+      rawImage: image
+        || fallbackRawStageSnapshotForStage({ phase: frame.phase })
+        || fallbackStageSnapshotForStage({ phase: frame.phase }),
       pose,
       poseSource: "fallbackTemplate",
     });
@@ -5886,7 +6008,8 @@ async function generateKeyframes(data) {
       await detectChildPose(video, { force: true, skipObjects: true, timeoutMs: 700 }).catch(() => {});
       await nextPaint();
       const pose = snapshotDetectedPoseForKeyframe(frameIndex);
-      const image = captureAnalysisFrame(pose) || fallbackStageSnapshotForStage({ phase: frame.phase });
+      const rawImage = captureRawKeyframeImage() || fallbackRawStageSnapshotForStage({ phase: frame.phase });
+      const image = captureAnalysisFrame(pose) || rawImage || fallbackStageSnapshotForStage({ phase: frame.phase });
       // Keep a frozen pose + image for this stage. Do not let later playback,
       // smoothing, or editor state redraw every card from the same current frame.
       cards.push({
@@ -5894,6 +6017,7 @@ async function generateKeyframes(data) {
         time: actualTime,
         frameIndex,
         image,
+        rawImage,
         pose,
       });
     }
@@ -6514,7 +6638,12 @@ dom.reviewFrameScrubber?.addEventListener("input", () => {
   dom.annotatedVideo.pause();
   renderReviewFramePreview(Number(dom.reviewFrameScrubber.value || 0));
 });
-dom.frameScrubber.addEventListener("input", seekToScrubbedFrame);
+dom.frameScrubber.addEventListener("input", () => {
+  seekToScrubbedFrame().catch((error) => {
+    console.warn("Could not seek to scrubbed frame", error);
+    dom.roiStatus.textContent = "Frame seek could not finish. Try Play/Pause, then choose the frame again.";
+  });
+});
 dom.keypointSelect.addEventListener("change", () => {
   syncKeypointVisibilityControls();
   syncRacketBoxControls();
@@ -6535,9 +6664,24 @@ dom.lowQualityFrames.addEventListener("click", (event) => {
   suggestedAnchorFrame = frame;
   goToFrameForCorrection(frame, `Low-quality frame ${frame} selected. Correct it and save it as an anchor.`);
 });
-dom.prevFrameButton.addEventListener("click", () => stepEditFrame(-1));
-dom.nextFrameButton.addEventListener("click", () => stepEditFrame(1));
-dom.nextKeyframeButton?.addEventListener("click", goToNextKeyframe);
+dom.prevFrameButton.addEventListener("click", () => {
+  stepEditFrame(-1).catch((error) => {
+    console.warn("Previous frame failed", error);
+    dom.roiStatus.textContent = "Previous frame could not load. Try Play/Pause, then step again.";
+  });
+});
+dom.nextFrameButton.addEventListener("click", () => {
+  stepEditFrame(1).catch((error) => {
+    console.warn("Next frame failed", error);
+    dom.roiStatus.textContent = "Next frame could not load. Try Play/Pause, then step again.";
+  });
+});
+dom.nextKeyframeButton?.addEventListener("click", () => {
+  goToNextKeyframe().catch((error) => {
+    console.warn("Next key frame failed", error);
+    dom.roiStatus.textContent = "Next key frame could not load. Try Play/Pause, then try again.";
+  });
+});
 dom.prevKeypointButton?.addEventListener("click", selectPreviousKeypoint);
 dom.saveFrameCorrectionButton.addEventListener("click", saveVisibleFrameCorrection);
 dom.keypointEditor.addEventListener("click", nudgeSelectedKeypoint);
