@@ -1104,20 +1104,44 @@ async function detectChildPose(video, options = {}) {
   poseRuntime.busy = true;
   poseRuntime.lastRun = now;
   try {
-    await poseRuntime.detector.send({ image: video });
+    await withTimeout(poseRuntime.detector.send({ image: video }), options.timeoutMs || 900);
   } catch {
     poseRuntime.failed = true;
     dom.childPoseScore.textContent = "CV unavailable";
   } finally {
     poseRuntime.busy = false;
   }
-  if (!poseRuntime.failed) {
-    if (options.force) {
+  if (!poseRuntime.failed && !options.skipObjects) {
+    if (options.force && !options.skipObjects) {
       await detectRacketWithYolo(video, { force: true });
     } else {
       detectRacketWithYolo(video);
     }
   }
+}
+
+function withTimeout(promise, timeoutMs = 900) {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const timeoutId = window.setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      reject(new Error("Operation timed out"));
+    }, timeoutMs);
+    Promise.resolve(promise)
+      .then((value) => {
+        if (settled) return;
+        settled = true;
+        window.clearTimeout(timeoutId);
+        resolve(value);
+      })
+      .catch((error) => {
+        if (settled) return;
+        settled = true;
+        window.clearTimeout(timeoutId);
+        reject(error);
+      });
+  });
 }
 
 function waitForPoseIdle(timeoutMs = 500) {
@@ -5678,7 +5702,10 @@ function snapshotDetectedPoseForKeyframe(frameIndex) {
 }
 
 async function generateKeyframes(data) {
-  await initPoseDetector();
+  await withTimeout(initPoseDetector(), 1000).catch(() => {
+    poseRuntime.failed = true;
+    dom.childPoseScore.textContent = "CV fallback";
+  });
   const video = dom.childVideo;
   dom.keyframeStatus.textContent = "Preparing video frames...";
   const metadataReady = await waitForVideoMetadata(video, 3600);
@@ -5761,7 +5788,7 @@ async function generateKeyframes(data) {
       poseRuntime.lastDetectedPose = null;
       poseRuntime.trackedPose = null;
       await waitForPoseIdle();
-      await detectChildPose(video, { force: true });
+      await detectChildPose(video, { force: true, skipObjects: true, timeoutMs: 700 }).catch(() => {});
       await nextPaint();
       const pose = snapshotDetectedPoseForKeyframe(frameIndex);
       const image = captureAnalysisFrame(pose) || fallbackStageSnapshotForStage({ phase: frame.phase });
