@@ -312,7 +312,6 @@ let reviewVideoRendering = false;
 let lastPlayerPreviewRatio = 9 / 16;
 const reviewFallbackImageCache = new Map();
 const analysisStageImageCache = new Map();
-const editorFrameImageCache = new Map();
 const poseCorrections = new Map();
 const poseCorrectionSources = new Map();
 const ballAnchorFrames = new Set();
@@ -913,35 +912,6 @@ function canvasPointFromEvent(event) {
   };
 }
 
-function keyframeEditorImageSource(frame) {
-  if (!poseRuntime.editMode || !dom.childVideo.paused || !keyframes.length) return "";
-  const safeFrame = clampFrameIndex(frame, dom.childVideo);
-  const selected = keyframes[selectedKeyframeIndex];
-  const exact = keyframes.find((keyframe) => keyframeToFrameIndex(keyframe) === safeFrame);
-  const match = exact || (
-    selected && keyframeToFrameIndex(selected) === safeFrame ? selected : null
-  );
-  if (!match) return "";
-  return match.rawImage
-    || fallbackRawStageSnapshotForStage({ phase: match.phase })
-    || match.image
-    || "";
-}
-
-function editorFrameImageForCurrentFrame() {
-  const source = keyframeEditorImageSource(currentEditorFrameIndex());
-  if (!source) return null;
-  const cached = editorFrameImageCache.get(source);
-  if (cached?.complete && cached.naturalWidth > 0) return cached;
-  if (!cached) {
-    const image = new Image();
-    image.onload = () => drawPoseLoop();
-    image.src = source;
-    editorFrameImageCache.set(source, image);
-  }
-  return null;
-}
-
 function positionRoiDragBox(box) {
   if (roiRuntime.dragging || roiRuntime.confirmed) return;
   dom.roiDragBox.style.left = `${box.x}px`;
@@ -1302,12 +1272,6 @@ function drawCroppedPlayerVideo(options = {}) {
   ctx.clearRect(0, 0, rect.width, rect.height);
   ctx.fillStyle = "#14211d";
   ctx.fillRect(0, 0, rect.width, rect.height);
-
-  const editorImage = options.canvas ? null : editorFrameImageForCurrentFrame();
-  if (editorImage) {
-    ctx.drawImage(editorImage, 0, 0, rect.width, rect.height);
-    return true;
-  }
 
   if (!video.src || video.readyState < 2 || !video.videoWidth || !video.videoHeight) return false;
 
@@ -5307,7 +5271,6 @@ function draftPayload() {
       frameIndex: frame.frameIndex,
       note: frame.note,
       image: frame.image,
-      rawImage: frame.rawImage,
       pose: clonePose(frame.pose || {}),
     })),
     selectedKeyframeIndex,
@@ -5908,9 +5871,6 @@ async function fallbackKeyframeCardsForStages(frames) {
       image: image
         || fallbackRawStageSnapshotForStage({ phase: frame.phase })
         || fallbackStageSnapshotForStage({ phase: frame.phase }),
-      rawImage: image
-        || fallbackRawStageSnapshotForStage({ phase: frame.phase })
-        || fallbackStageSnapshotForStage({ phase: frame.phase }),
       pose,
       poseSource: "fallbackTemplate",
     });
@@ -6008,8 +5968,7 @@ async function generateKeyframes(data) {
       await detectChildPose(video, { force: true, skipObjects: true, timeoutMs: 700 }).catch(() => {});
       await nextPaint();
       const pose = snapshotDetectedPoseForKeyframe(frameIndex);
-      const rawImage = captureRawKeyframeImage() || fallbackRawStageSnapshotForStage({ phase: frame.phase });
-      const image = captureAnalysisFrame(pose) || rawImage || fallbackStageSnapshotForStage({ phase: frame.phase });
+      const image = captureAnalysisFrame(pose) || fallbackStageSnapshotForStage({ phase: frame.phase });
       // Keep a frozen pose + image for this stage. Do not let later playback,
       // smoothing, or editor state redraw every card from the same current frame.
       cards.push({
@@ -6017,7 +5976,6 @@ async function generateKeyframes(data) {
         time: actualTime,
         frameIndex,
         image,
-        rawImage,
         pose,
       });
     }
