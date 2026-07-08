@@ -2004,7 +2004,9 @@ function maxFrameIndex(video = dom.childVideo) {
 }
 
 function clampFrameIndex(frame, video = dom.childVideo) {
-  return clamp(Math.round(Number(frame) || 0), 0, maxFrameIndex(video));
+  const frameNumber = Math.max(0, Math.round(Number(frame) || 0));
+  if (reliableVideoDuration(video) <= 0) return frameNumber;
+  return clamp(frameNumber, 0, maxFrameIndex(video));
 }
 
 function frameIndexForTime(time) {
@@ -3580,7 +3582,7 @@ async function goToNextKeyframe() {
   const ordered = keyframes
     .map((keyframe, index) => ({
       index,
-      frame: clampFrameIndex(keyframeToFrameIndex(keyframe), dom.childVideo),
+      frame: keyframeToFrameIndex(keyframe),
       phase: keyframe.phase,
     }))
     .sort((a, b) => a.frame - b.frame);
@@ -3611,14 +3613,16 @@ async function goToSuggestedAnchorFrame() {
 }
 
 async function goToFrameForCorrection(frameNumber, message = "") {
-  if (!dom.childVideo.duration || !Number.isFinite(dom.childVideo.duration)) return;
+  await waitForVideoMetadata(dom.childVideo, 900).catch(() => false);
   const fps = Math.max(1, Number(dom.fpsInput.value || 60));
   const safeFrame = clampFrameIndex(frameNumber, dom.childVideo);
+  const targetTime = safeFrame / fps;
+  const duration = reliableVideoDuration(dom.childVideo) || targetTime + 0.001;
   workflowStepOverride = "keypoints";
   if (!poseRuntime.editMode) toggleKeypointEdit();
   dom.childVideo.pause();
-  dom.childVideo.currentTime = clamp(safeFrame / fps, 0, dom.childVideo.duration);
-  await waitForVideoSeek(dom.childVideo);
+  dom.childVideo.currentTime = clamp(targetTime, 0, Math.max(0, duration - 0.001));
+  await waitForVideoSeek(dom.childVideo, 900);
   await detectChildPose(dom.childVideo, { force: true }).catch(() => {});
   refreshEditablePoseFromFrame();
   refreshRacketDetectionForCurrentEditFrame();
