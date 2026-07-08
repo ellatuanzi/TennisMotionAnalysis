@@ -5863,10 +5863,9 @@ async function detectKeyframes() {
     await generateKeyframes(latestAnalysis);
     if (!keyframes.length) throw new Error("No key frames were captured.");
     const defaultAnchorCount = seedDefaultAnchorFramesFromKeyframes();
-    await generateSmoothTrack({ auto: true, reason: `${defaultAnchorCount} high-confidence default anchor frames selected.` });
     renderKeyframes();
-    dom.keyframeStatus.textContent = "Default anchor frames are ready. Review, adjust, add, or delete anchors before detailed correction.";
-    dom.roiStatus.textContent = "Default anchor frames detected. Open the frame editor to adjust anchors first, then add more if needed.";
+    dom.keyframeStatus.textContent = `${keyframes.length} key frames generated`;
+    dom.roiStatus.textContent = `${defaultAnchorCount} default anchor frames are ready. Choose a correction path to continue.`;
     workflowStepOverride = "frames";
     drawPoseLoop();
     window.setTimeout(() => {
@@ -5875,9 +5874,17 @@ async function detectKeyframes() {
     setStatus("Key frames ready", "done");
   } catch (error) {
     console.error(error);
-    dom.keyframeStatus.textContent = "Key frame detection could not finish. Try again or add frames manually from the video.";
-    dom.roiStatus.textContent = "Key frame detection stopped before completion. The buttons are ready to try again.";
-    setStatus("Ready", "done");
+    if (keyframes.length) {
+      renderKeyframes();
+      dom.keyframeStatus.textContent = `${keyframes.length} key frames generated`;
+      dom.roiStatus.textContent = "Key frames are ready. The optional tracking step can be run after you choose a correction path.";
+      workflowStepOverride = "frames";
+      setStatus("Key frames ready", "done");
+    } else {
+      dom.keyframeStatus.textContent = "Key frame detection could not finish. Try again or add frames manually from the video.";
+      dom.roiStatus.textContent = "Key frame detection stopped before completion. The buttons are ready to try again.";
+      setStatus("Ready", "done");
+    }
   } finally {
     window.clearTimeout(watchdog);
     keyframeDetectionBusy = false;
