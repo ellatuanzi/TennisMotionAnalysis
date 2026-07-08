@@ -417,7 +417,7 @@ function scrollToMotionAnalysis() {
 }
 
 function workflowHintText(step) {
-  if (step === "roi") return "Adjust the blue ROI box around the player, then confirm it before detecting keypoints.";
+  if (step === "roi") return "Upload a player video, or use the default PoC video already loaded, then confirm the player crop before detecting keypoints.";
   if (step === "frames") return "Choose the important swing frames. Use Auto Detect first, then add, update, or delete frames from the video.";
   if (step === "keypoints") return "Step 3: choose Edit Key Frames Only to fix selected anchors, or Edit Full Video for frame-by-frame corrections. Save anchors before smoothing.";
   if (step === "review") return "Render the review video from the smoothed tracked frames. If it looks wrong, return to Frame Corrections and smooth again.";
@@ -556,7 +556,7 @@ function updateWorkflow() {
   updateTrackingQualityPanel();
 
   if (step === "roi") {
-    setPrimaryWorkflowAction("Confirm ROI", false);
+    setPrimaryWorkflowAction("Confirm Video", false);
   } else if (step === "frames") {
     setPrimaryWorkflowAction(keyframes.length ? "Continue to Frame Corrections" : "Auto Detect Key Frames", false);
   } else if (step === "keypoints") {
@@ -639,7 +639,7 @@ function loadVideo(input, video, fileNameNode, emptyNode) {
     }
   }
   video.addEventListener("loadedmetadata", () => {
-    resetRoiConfirmation("New video loaded. Adjust crop with sliders or the blue resize handle, then confirm.");
+    resetRoiConfirmation("New video loaded. Adjust crop if needed, then confirm the player video.");
     drawPoseLoop();
     if (video === dom.childVideo) renderProgress();
   }, { once: true });
@@ -789,7 +789,7 @@ function loadPocPreset() {
   dom.childVideo.src = pocPreset.playerVideo;
   dom.childFileName.textContent = pocPreset.playerLabel;
   dom.childEmpty.classList.add("hidden");
-  resetRoiConfirmation("PoC video loaded. Adjust crop with sliders or the blue resize handle, then confirm.");
+  resetRoiConfirmation("Default PoC video loaded. Adjust crop if needed, then confirm the player video.");
   dom.coachingNotes.value = defaultCoachingNotes;
 
   dom.youtubeUrl.value = pocPreset.referenceUrl;
@@ -804,7 +804,7 @@ function loadPocPreset() {
   updateYoutubePreview();
 }
 
-function resetRoiConfirmation(message = "Adjust crop with sliders or the blue resize handle, then confirm") {
+function resetRoiConfirmation(message = "Default PoC video is loaded. Adjust crop if needed, then confirm.") {
   roiRuntime.confirmed = false;
   poseRuntime.childPose = null;
   poseRuntime.lastDetectedPose = null;
@@ -825,8 +825,8 @@ function resetRoiConfirmation(message = "Adjust crop with sliders or the blue re
   keypointVideoReady = false;
   motionAnalysisReady = false;
   correctionScope = "video";
-  dom.childPoseScore.textContent = "ROI preview";
-  dom.confirmRoiButton.textContent = "Confirm ROI";
+  dom.childPoseScore.textContent = "Video crop";
+  dom.confirmRoiButton.textContent = "Confirm Video";
   dom.confirmRoiButton.classList.remove("confirmed");
   dom.editKeyframeAnchorsButton?.classList.remove("active");
   dom.editKeypointsButton.classList.remove("active");
@@ -864,12 +864,12 @@ function applyRoiControls() {
     x: Number(dom.playerCropX.value || 0.61),
     y: Number(dom.playerCropY.value || 0.58),
   });
-  resetRoiConfirmation("ROI preview updated. Confirm before detection.");
+  resetRoiConfirmation("Player crop updated. Confirm before detection.");
 }
 
 function scheduleRoiPreview() {
   window.clearTimeout(roiRuntime.debounceTimer);
-  dom.roiStatus.textContent = "Updating ROI preview...";
+  dom.roiStatus.textContent = "Updating player crop preview...";
   roiRuntime.debounceTimer = window.setTimeout(applyRoiControls, 320);
 }
 
@@ -892,13 +892,13 @@ function confirmRoi() {
   racketManualFrames.clear();
   keypointTrackingReady = false;
   dom.roiDragBox.classList.add("hidden");
-  dom.confirmRoiButton.textContent = "ROI Confirmed";
+  dom.confirmRoiButton.textContent = "Video Confirmed";
   dom.confirmRoiButton.classList.add("confirmed");
   dom.editKeyframeAnchorsButton?.classList.remove("active");
   dom.editKeypointsButton.classList.remove("active");
   dom.keypointEditor.classList.remove("active");
   dom.editKeypointsButton.textContent = "Edit Full Video";
-  dom.roiStatus.textContent = "ROI confirmed. Keypoint detection is enabled.";
+  dom.roiStatus.textContent = "Player video confirmed. Keypoint detection is enabled.";
   dom.childPoseScore.textContent = "Detecting";
   updateWorkflow();
 }
@@ -971,7 +971,7 @@ function startRoiDrag(event) {
     frameHeight: frameRect.height,
   };
   dom.roiDragBox.classList.add("dragging");
-  dom.roiStatus.textContent = "Dragging ROI. Release, then confirm.";
+  dom.roiStatus.textContent = "Dragging player crop. Release, then confirm.";
   if (event.currentTarget?.setPointerCapture && event.pointerId) {
     event.currentTarget.setPointerCapture(event.pointerId);
   }
@@ -1018,10 +1018,10 @@ function moveRoiDrag(event) {
   setRoiControls({ x: sourcePoint.x, y: sourcePoint.y, zoom: nextZoom });
   roiRuntime.confirmed = false;
   poseRuntime.childPose = null;
-  dom.childPoseScore.textContent = "ROI preview";
-  dom.confirmRoiButton.textContent = "Confirm ROI";
+  dom.childPoseScore.textContent = "Video crop";
+  dom.confirmRoiButton.textContent = "Confirm Video";
   dom.confirmRoiButton.classList.remove("confirmed");
-  dom.roiStatus.textContent = "ROI moved. Confirm before detection.";
+  dom.roiStatus.textContent = "Player crop moved. Confirm before detection.";
   event.preventDefault();
 }
 
@@ -1037,7 +1037,7 @@ function zoomRoi(event) {
   if (!dom.childVideo.src || dom.childVideo.readyState < 2) return;
   const delta = event.deltaY > 0 ? -0.15 : 0.15;
   setRoiControls({ zoom: roiRuntime.crop.zoom + delta });
-  resetRoiConfirmation("ROI zoom changed. Confirm before detection.");
+  resetRoiConfirmation("Player crop zoom changed. Confirm before detection.");
   event.preventDefault();
 }
 
@@ -3155,7 +3155,7 @@ function smoothRangeForFrame(frameIndex, anchors, total) {
 
 async function generateSmoothTrack(options = {}) {
   if (!roiRuntime.confirmed || !keyframes.length) {
-    dom.roiStatus.textContent = "Confirm ROI and detect key frames before smoothing.";
+    dom.roiStatus.textContent = "Confirm the player video and detect key frames before smoothing.";
     return;
   }
   if (!options.auto && poseRuntime.editMode && poseRuntime.editedPose) {
@@ -3388,7 +3388,7 @@ function nearestKeypoint(pointer) {
 
 function toggleKeypointEdit() {
   if (!roiRuntime.confirmed) {
-    dom.roiStatus.textContent = "Confirm ROI before editing keypoints.";
+    dom.roiStatus.textContent = "Confirm the player video before editing keypoints.";
     return;
   }
 
@@ -3655,7 +3655,7 @@ async function goToFrameForCorrection(frameNumber, message = "", options = {}) {
 
 async function openSelectedKeyframeEditor() {
   if (!roiRuntime.confirmed) {
-    dom.roiStatus.textContent = "Confirm ROI before editing key frames.";
+    dom.roiStatus.textContent = "Confirm the player video before editing key frames.";
     return;
   }
   if (!keyframes.length) {
@@ -3678,7 +3678,7 @@ async function openSelectedKeyframeEditor() {
 
 async function openFullVideoEditor() {
   if (!roiRuntime.confirmed) {
-    dom.roiStatus.textContent = "Confirm ROI before editing the video.";
+    dom.roiStatus.textContent = "Confirm the player video before editing the video.";
     return;
   }
   if (!keyframes.length) {
@@ -3923,7 +3923,7 @@ function drawPose(canvas, video, seedOffset, color, options = {}) {
   if (video === dom.childVideo && !roiRuntime.confirmed) {
     const box = getRoiBoxInFullFrame(video, rect);
     positionRoiDragBox(box);
-    dom.childPoseScore.textContent = "ROI preview";
+    dom.childPoseScore.textContent = "Video crop";
     return;
   }
 
@@ -3966,7 +3966,7 @@ function drawPose(canvas, video, seedOffset, color, options = {}) {
         ? "Corrected frame"
         : poseRuntime.childPose
           ? "CV keypoints"
-          : "ROI demo";
+          : "Video crop";
   }
 
   const viewport = video === dom.childVideo
@@ -5332,7 +5332,7 @@ function loadDraft() {
     if (draft.roi?.crop) {
       setRoiControls(draft.roi.crop);
       roiRuntime.confirmed = Boolean(draft.roi.confirmed);
-      dom.confirmRoiButton.textContent = roiRuntime.confirmed ? "ROI Confirmed" : "Confirm ROI";
+      dom.confirmRoiButton.textContent = roiRuntime.confirmed ? "Video Confirmed" : "Confirm Video";
       dom.confirmRoiButton.classList.toggle("confirmed", roiRuntime.confirmed);
       dom.roiDragBox.classList.toggle("hidden", roiRuntime.confirmed);
     }
@@ -5788,7 +5788,7 @@ function trainingAnnotationForPose(pose) {
 
 function saveTrainingSample() {
   if (!roiRuntime.confirmed) {
-    dom.roiStatus.textContent = "Confirm ROI before saving a training sample.";
+    dom.roiStatus.textContent = "Confirm the player video before saving a training sample.";
     return;
   }
   dom.childVideo.pause();
@@ -6056,7 +6056,7 @@ function currentPhaseName() {
 
 async function captureCurrentKeyframe(phase = currentPhaseName()) {
   if (!roiRuntime.confirmed) {
-    dom.roiStatus.textContent = "Confirm ROI before adding key frames.";
+    dom.roiStatus.textContent = "Confirm the player video before adding key frames.";
     return null;
   }
 
@@ -6158,7 +6158,7 @@ async function detectKeyframes() {
     return;
   }
   if (!roiRuntime.confirmed) {
-    dom.roiStatus.textContent = "Confirm ROI before detecting key frames.";
+    dom.roiStatus.textContent = "Confirm the player video before detecting key frames.";
     return;
   }
 
@@ -6213,7 +6213,7 @@ async function detectKeyframes() {
 
 async function exportKeypointVideo() {
   if (!roiRuntime.confirmed) {
-    dom.roiStatus.textContent = "Confirm ROI before rendering the review video.";
+    dom.roiStatus.textContent = "Confirm the player video before rendering the review video.";
     return;
   }
   if (!keyframes.length) {
@@ -6453,7 +6453,7 @@ function syncReviewPreviewFromAnnotatedVideo() {
 
 async function runAnalysis() {
   if (!roiRuntime.confirmed) {
-    setStatus("Confirm ROI first", "running");
+    setStatus("Confirm video first", "running");
     dom.roiStatus.textContent = "Please confirm the zoomed player region before analysis.";
     return;
   }

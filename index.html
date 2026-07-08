@@ -25,20 +25,20 @@
 
       <section class="workflow-panel" aria-label="Motion analysis workflow">
         <div class="workflow-steps" id="workflowSteps">
-          <span class="active" data-step="roi">1. ROI</span>
+          <span class="active" data-step="roi">1. Upload Video</span>
           <span data-step="frames">2. Key Frames</span>
           <span data-step="keypoints">3. Frame Corrections</span>
           <span data-step="review">4. Review Video</span>
           <span data-step="analysis">5. Motion Analysis</span>
         </div>
         <div class="workflow-action-row">
-          <p id="workflowHint">Start by adjusting the blue ROI box around the player, then confirm it.</p>
+          <p id="workflowHint">Upload a player video, or use the default PoC video already loaded, then confirm the player crop.</p>
           <div class="workflow-actions">
             <button class="secondary-action compact ghost" id="loadDraftButton" type="button">Load Draft</button>
             <button class="secondary-action compact ghost" id="saveDraftButton" type="button">Save Draft</button>
             <button class="primary-action compact" id="workflowNextButton" type="button">
               <span>▶</span>
-              Confirm ROI
+              Confirm Video
             </button>
           </div>
         </div>
@@ -141,12 +141,12 @@
               <input id="playerCropY" type="range" min="0" max="1" step="0.01" value="0.58" />
             </label>
             <div class="roi-actions">
-              <button class="secondary-action" id="confirmRoiButton" type="button">Confirm ROI</button>
+              <button class="secondary-action" id="confirmRoiButton" type="button">Confirm Video</button>
               <button class="secondary-action" id="editKeyframeAnchorsButton" type="button">Edit Key Frames Only</button>
               <button class="secondary-action" id="editKeypointsButton" type="button">Edit Full Video</button>
               <button class="secondary-action" id="exportVideoButton" type="button">Render Review Video</button>
               <a class="download-link hidden" id="downloadVideoLink" href="#" download="keypoint-analysis.webm">Download rendered video</a>
-              <span id="roiStatus">Adjust crop with sliders or the blue resize handle, then confirm</span>
+              <span id="roiStatus">Default PoC video is loaded. Adjust crop if needed, then confirm.</span>
             </div>
             <div class="keypoint-editor" id="keypointEditor">
               <div class="editor-help">
@@ -263,7 +263,7 @@
 
           <button class="primary-action" id="analyzeButton" type="button">
             <span>▶</span>
-            Confirm ROI
+            Confirm Video
           </button>
         </aside>
 
@@ -279,7 +279,7 @@
                 <canvas id="childRenderCanvas"></canvas>
                 <canvas id="childCanvas"></canvas>
                 <div class="roi-drag-box" id="roiDragBox">
-                  <span>ROI preview</span>
+                  <span>Player crop</span>
                   <i aria-hidden="true"></i>
                 </div>
                 <div class="empty-state" id="childEmpty">Waiting for video</div>
@@ -560,6 +560,6 @@
     </dialog>
 
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
-    <script src="./app.js?v=20260708-img1894-poc"></script>
+    <script src="./app.js?v=20260708-upload-video-step"></script>
   </body>
 </html>
