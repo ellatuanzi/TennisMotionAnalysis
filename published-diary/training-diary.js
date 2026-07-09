@@ -1074,14 +1074,53 @@ function renderDetectionList(container, detections = []) {
 function appendKeyframeDetail(container, frame) {
   const note = frame.aiNote || "Review this frame against the coach cue and motion-analysis overlay.";
   if (!note) return;
+  const detailParts = splitKeyframeNote(note);
   const detail = document.createElement("details");
   detail.className = "keyframe-detail";
   const summary = document.createElement("summary");
-  summary.textContent = "Evidence & coach cue";
-  const body = document.createElement("p");
-  body.textContent = note;
-  detail.append(summary, body);
+  summary.textContent = detailParts.evidence ? "Evidence & coach cue" : "Coach note & cue";
+  detail.append(summary);
+  detailParts.rows.forEach((row) => {
+    const body = document.createElement("p");
+    const label = document.createElement("strong");
+    label.textContent = `${row.label}: `;
+    body.append(label, document.createTextNode(row.text));
+    detail.append(body);
+  });
   container.append(detail);
+}
+
+function cleanKeyframeNoteText(value) {
+  return String(value || "")
+    .replace(/\.\./g, ".")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function splitKeyframeNote(note) {
+  const cleaned = cleanKeyframeNoteText(note);
+  const cueMatch = cleaned.match(/\bCoach cue:\s*/);
+  const beforeCue = cueMatch ? cleaned.slice(0, cueMatch.index).trim().replace(/\.$/, "") : cleaned;
+  const coachCue = cueMatch ? cleaned.slice(cueMatch.index + cueMatch[0].length).trim() : "";
+  let evidence = "";
+  let coachNote = "";
+
+  if (/^Evidence:\s*Coach note:/i.test(beforeCue)) {
+    coachNote = beforeCue.replace(/^Evidence:\s*/i, "").trim();
+  } else if (/^Coach note:/i.test(beforeCue)) {
+    coachNote = beforeCue;
+  } else if (/^Evidence:/i.test(beforeCue)) {
+    evidence = beforeCue.replace(/^Evidence:\s*/i, "").trim();
+  } else {
+    coachNote = beforeCue;
+  }
+
+  const rows = [];
+  if (evidence) rows.push({ label: "Evidence", text: evidence });
+  if (coachNote) rows.push({ label: "Coach note", text: coachNote.replace(/^Coach note:\s*/i, "") });
+  if (coachCue) rows.push({ label: "Coach cue", text: coachCue });
+  if (!rows.length) rows.push({ label: "Note", text: cleaned });
+  return { evidence, rows };
 }
 
 function keyframeViewerTitle(frame, index) {

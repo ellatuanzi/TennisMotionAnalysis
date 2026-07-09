@@ -5743,13 +5743,15 @@ function analysisDiaryEntry(options = {}) {
       status: stage.score >= 80 ? "good" : "issue",
     }));
     const metrics = detections.map((metric) => `${metric.label}: ${metric.value}`).join("; ");
+    const stageEvidence = String(stage.evidence || "").trim();
+    const notePrefix = /^Coach note:/i.test(stageEvidence) ? stageEvidence : `Evidence: ${stageEvidence}`;
     return {
       time: representativeFrame ? keyframeTimeLabel(keyframes.indexOf(representativeFrame)) : keyframeTimeLabel(index),
       phase: stageShortName(stage.name),
       score: stage.score,
       status: stage.score >= 80 ? "good" : "issue",
       points: `${stage.quality}. ${metrics || stage.metric}. Focus: ${stage.next}`,
-      aiNote: `Evidence: ${stage.evidence}. Coach cue: ${stage.coachComment}`,
+      aiNote: `${notePrefix}. Coach cue: ${stage.coachComment}`,
       detections,
       image: options.includeImages === false ? null : stage.image,
     };
