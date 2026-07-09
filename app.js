@@ -204,6 +204,7 @@ const videoStoreName = "videos";
 let activeProgressSessionId = null;
 let currentPlayerVideoFile = null;
 let diaryDataDownloadUrl = null;
+let diaryPackageDownloadUrl = null;
 
 const serveStageTemplate = [
   {
@@ -5366,6 +5367,177 @@ function createDiaryDataDownload(entries) {
   return diaryDataDownloadUrl;
 }
 
+function sanitizePackagePathPart(value = "") {
+  return String(value || "asset")
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    || "asset";
+}
+
+function dataUrlToBlob(dataUrl) {
+  const [header, body] = String(dataUrl || "").split(",");
+  const mime = header?.match(/^data:([^;]+)/)?.[1] || "application/octet-stream";
+  const binary = atob(body || "");
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return new Blob([bytes], { type: mime });
+}
+
+function imageExtensionFromDataUrl(dataUrl) {
+  const mime = String(dataUrl || "").match(/^data:([^;]+)/)?.[1] || "";
+  if (mime.includes("png")) return "png";
+  if (mime.includes("webp")) return "webp";
+  return "jpg";
+}
+
+function fileExtensionFromName(value = "", fallback = "mov") {
+  const match = String(value || "").match(/\.([a-z0-9]{2,5})$/i);
+  return match ? match[1].toLowerCase() : fallback;
+}
+
+async function blobToUint8Array(blob) {
+  return new Uint8Array(await blob.arrayBuffer());
+}
+
+function crc32(bytes) {
+  let crc = -1;
+  for (let index = 0; index < bytes.length; index += 1) {
+    crc ^= bytes[index];
+    for (let bit = 0; bit < 8; bit += 1) {
+      crc = (crc >>> 1) ^ (0xedb88320 & -(crc & 1));
+    }
+  }
+  return (crc ^ -1) >>> 0;
+}
+
+function dosDateTime(date = new Date()) {
+  const time = (date.getHours() << 11) | (date.getMinutes() << 5) | Math.floor(date.getSeconds() / 2);
+  const day = Math.max(1, date.getDate());
+  const dosDate = ((date.getFullYear() - 1980) << 9) | ((date.getMonth() + 1) << 5) | day;
+  return { time, date: dosDate };
+}
+
+function uint16(value) {
+  return [value & 0xff, (value >>> 8) & 0xff];
+}
+
+function uint32(value) {
+  return [value & 0xff, (value >>> 8) & 0xff, (value >>> 16) & 0xff, (value >>> 24) & 0xff];
+}
+
+async function createZipBlob(files) {
+  const encoder = new TextEncoder();
+  const localParts = [];
+  const centralParts = [];
+  let offset = 0;
+  for (const file of files) {
+    const nameBytes = encoder.encode(file.name);
+    const dataBytes = await blobToUint8Array(file.blob);
+    const checksum = crc32(dataBytes);
+    const timestamp = dosDateTime(file.modifiedAt || new Date());
+    const localHeader = new Uint8Array([
+      ...uint32(0x04034b50),
+      ...uint16(20),
+      ...uint16(0),
+      ...uint16(0),
+      ...uint16(timestamp.time),
+      ...uint16(timestamp.date),
+      ...uint32(checksum),
+      ...uint32(dataBytes.length),
+      ...uint32(dataBytes.length),
+      ...uint16(nameBytes.length),
+      ...uint16(0),
+    ]);
+    localParts.push(localHeader, nameBytes, dataBytes);
+    const centralHeader = new Uint8Array([
+      ...uint32(0x02014b50),
+      ...uint16(20),
+      ...uint16(20),
+      ...uint16(0),
+      ...uint16(0),
+      ...uint16(timestamp.time),
+      ...uint16(timestamp.date),
+      ...uint32(checksum),
+      ...uint32(dataBytes.length),
+      ...uint32(dataBytes.length),
+      ...uint16(nameBytes.length),
+      ...uint16(0),
+      ...uint16(0),
+      ...uint16(0),
+      ...uint16(0),
+      ...uint32(0),
+      ...uint32(offset),
+    ]);
+    centralParts.push(centralHeader, nameBytes);
+    offset += localHeader.length + nameBytes.length + dataBytes.length;
+  }
+  const centralSize = centralParts.reduce((total, part) => total + part.length, 0);
+  const endRecord = new Uint8Array([
+    ...uint32(0x06054b50),
+    ...uint16(0),
+    ...uint16(0),
+    ...uint16(files.length),
+    ...uint16(files.length),
+    ...uint32(centralSize),
+    ...uint32(offset),
+    ...uint16(0),
+  ]);
+  return new Blob([...localParts, ...centralParts, endRecord], { type: "application/zip" });
+}
+
+function packageDiaryEntry(entry) {
+  const packaged = structuredClone(entry);
+  const files = [];
+  const base = sanitizePackagePathPart(entry.sessionName || entry.videoName || entry.id);
+  if (currentPlayerVideoFile) {
+    const extension = fileExtensionFromName(currentPlayerVideoFile.name, "mov");
+    const videoPath = `assets/${base}.${extension}`;
+    files.push({ name: videoPath, blob: currentPlayerVideoFile, modifiedAt: currentPlayerVideoFile.lastModified ? new Date(currentPlayerVideoFile.lastModified) : new Date() });
+    packaged.videoUrl = `./${videoPath}`;
+    packaged.previewVideoUrl = `./${videoPath}`;
+    packaged.rawVideoUrl = `./${videoPath}`;
+  }
+  packaged.keyframes = (packaged.keyframes || []).map((frame, index) => {
+    const nextFrame = { ...frame };
+    if (typeof frame.image === "string" && frame.image.startsWith("data:")) {
+      const extension = imageExtensionFromDataUrl(frame.image);
+      const phase = sanitizePackagePathPart(frame.phase || `frame-${index + 1}`);
+      const imagePath = `exports/${base}/keypoint-overlays/${String(index + 1).padStart(2, "0")}-${phase}-keypoints.${extension}`;
+      const rawPath = `exports/${base}/raw-frames/${String(index + 1).padStart(2, "0")}-${phase}-raw.${extension}`;
+      const blob = dataUrlToBlob(frame.image);
+      files.push({ name: imagePath, blob });
+      files.push({ name: rawPath, blob });
+      nextFrame.image = `./${imagePath}`;
+      nextFrame.rawFrame = `./${rawPath}`;
+    }
+    return nextFrame;
+  });
+  return { entry: packaged, files };
+}
+
+async function createDiaryPackageDownload(entry, allEntries) {
+  if (diaryPackageDownloadUrl) URL.revokeObjectURL(diaryPackageDownloadUrl);
+  const packaged = packageDiaryEntry(entry);
+  const packagedEntries = mergeDiaryEntries(
+    [packaged.entry],
+    allEntries.filter((item) => diaryEntryKey(item) !== diaryEntryKey(entry)),
+  ).slice(0, 30);
+  const dataBlob = new Blob([JSON.stringify({ entries: packagedEntries, exportedAt: new Date().toISOString() }, null, 2)], { type: "application/json" });
+  const zipBlob = await createZipBlob([
+    { name: "diary-data.json", blob: dataBlob },
+    ...packaged.files,
+  ]);
+  diaryPackageDownloadUrl = URL.createObjectURL(zipBlob);
+  return {
+    url: diaryPackageDownloadUrl,
+    fileName: `${sanitizePackagePathPart(entry.sessionName || entry.videoName || "diary")}-diary-package.zip`,
+    mediaCount: packaged.files.length,
+  };
+}
+
 function diaryEntryDate() {
   const date = new Date();
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
@@ -5475,7 +5647,8 @@ async function exportAnalysisToDiary() {
   }
   if (dom.diaryExportStatus) {
     const downloadUrl = createDiaryDataDownload(nextEntries);
-    dom.diaryExportStatus.innerHTML = `Exported to local diary. <a href="./training-diary.html">Open diary</a> · <a href="${downloadUrl}" download="diary-data.json">Save diary-data.json for publishing</a>`;
+    const packageDownload = await createDiaryPackageDownload(entry, nextEntries);
+    dom.diaryExportStatus.innerHTML = `Exported to local diary. <a href="./training-diary.html">Open diary</a> · <a href="${packageDownload.url}" download="${packageDownload.fileName}">Download diary package</a> · <a href="${downloadUrl}" download="diary-data.json">JSON only</a> · ${packageDownload.mediaCount} media file${packageDownload.mediaCount === 1 ? "" : "s"} included`;
   }
 }
 

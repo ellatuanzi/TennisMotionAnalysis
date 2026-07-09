@@ -49,7 +49,14 @@ To build, check, commit, push `main`, and update the GitHub Pages diary in one w
 python3 scripts/publish_diary.py --message "Publish diary update"
 ```
 
-If Motion Analysis shows "Save diary-data.json for publishing" after export, download that file and replace the root `diary-data.json` before running the publish script. The diary page also shows whether browser-local entries are missing from `diary-data.json`.
+If Motion Analysis shows "Download diary package" after export, download the zip and import it before publishing:
+
+```bash
+python3 scripts/import_diary_package.py ~/Downloads/<session>-diary-package.zip
+python3 scripts/publish_diary.py --message "Publish diary update"
+```
+
+The package contains `diary-data.json`, the exported video, and keyframe images. The diary page also shows whether browser-local entries are missing from `diary-data.json`.
 
 The script writes the confirmed release to:
 
