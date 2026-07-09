@@ -585,10 +585,11 @@ async function loadEntries() {
       const importedEntries = Array.isArray(data) ? data : Array.isArray(data.entries) ? data.entries : [];
       fileEntryCount = importedEntries.length;
       fileEntryKeys = new Set(importedEntries.map((entry) => entry.id || `${entry.date || ""}|${entry.title || ""}|${entry.createdAt || ""}`));
-      const mergedEntries = mergeDiaryEntries(savedEntries, importedEntries);
+      const mergedEntries = mergeDiaryEntries(importedEntries, savedEntries, { keepSecondaryEntry: hasDiaryMedia });
       try {
-        if (mergedEntries.length > savedEntries.length) {
-          localStorage.setItem(storageKey, JSON.stringify(mergedEntries));
+        const mergedJson = JSON.stringify(mergedEntries);
+        if (mergedJson !== JSON.stringify(savedEntries)) {
+          localStorage.setItem(storageKey, mergedJson);
         }
       } catch {
         // Large image snapshots can exceed storage quota; keep rendering from the data file.
@@ -616,17 +617,32 @@ function saveEntries() {
   renderDiarySyncStatus();
 }
 
-function mergeDiaryEntries(primaryEntries, importedEntries) {
+function entryMergeKey(entry) {
+  return entry.id || `${entry.date || ""}|${entry.title || ""}|${entry.createdAt || ""}`;
+}
+
+function hasDiaryMedia(entry) {
+  if (!entry || typeof entry !== "object") return false;
+  if ([entry.videoUrl, entry.previewVideoUrl, entry.rawVideoUrl].some((value) => typeof value === "string" && value.trim() && !value.startsWith("blob:"))) {
+    return true;
+  }
+  return normalizeKeyframes(entry.keyframes).some((frame) => frame?.image || frame?.rawFrame);
+}
+
+function mergeDiaryEntries(primaryEntries, importedEntries, options = {}) {
   const merged = [];
   const seen = new Set();
-  [...primaryEntries, ...importedEntries].forEach((entry) => {
+  const appendEntry = (entry, isSecondary = false) => {
     if (!entry || typeof entry !== "object") return;
+    if (isSecondary && options.keepSecondaryEntry && !options.keepSecondaryEntry(entry)) return;
     normalizeDiaryEntry(entry);
-    const key = entry.id || `${entry.date || ""}|${entry.title || ""}|${entry.createdAt || ""}`;
+    const key = entryMergeKey(entry);
     if (seen.has(key)) return;
     seen.add(key);
     merged.push(entry);
-  });
+  };
+  primaryEntries.forEach((entry) => appendEntry(entry, false));
+  importedEntries.forEach((entry) => appendEntry(entry, true));
   return merged;
 }
 
