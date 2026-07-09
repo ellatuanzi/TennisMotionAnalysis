@@ -814,6 +814,11 @@ textarea {
   line-height: 1.5;
 }
 
+.keyframe-detail p strong {
+  color: #20302c;
+  font-weight: 760;
+}
+
 body.keyframe-viewer-open {
   overflow: hidden;
 }
