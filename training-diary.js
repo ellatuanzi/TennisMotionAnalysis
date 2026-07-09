@@ -1131,6 +1131,10 @@ function renderKeyframes(container, entry) {
   });
 }
 
+function shouldHideKeyframes(entry) {
+  return Boolean(entry.hideKeyframes || entry.keyframesHidden);
+}
+
 function renderEntries() {
   syncContentFilterOptions();
   syncVideoFilterOptions();
@@ -1145,14 +1149,19 @@ function renderEntries() {
 
   list.forEach((entry) => {
     const card = dom.template.content.firstElementChild.cloneNode(true);
-    const frames = normalizeKeyframes(entry.keyframes);
+    const frames = shouldHideKeyframes(entry) ? [] : normalizeKeyframes(entry.keyframes);
     card.querySelector(".card-date").textContent = formatDate(entry.date);
     bindEntrySelectors(card, entry);
     card.querySelector(".card-title").textContent = entry.title;
     card.querySelector(".session-pill").textContent = entrySessionName(entry);
     card.querySelector(".stroke-pill").textContent = contentLabel(entryContent(entry));
-    card.querySelector(".keyframe-count").textContent = `${frames.length} frame${frames.length === 1 ? "" : "s"}`;
-    renderKeyframes(card.querySelector(".keyframe-list"), entry);
+    const keyframesSection = card.querySelector(".keyframes-section");
+    if (shouldHideKeyframes(entry)) {
+      keyframesSection.hidden = true;
+    } else {
+      card.querySelector(".keyframe-count").textContent = `${frames.length} frame${frames.length === 1 ? "" : "s"}`;
+      renderKeyframes(card.querySelector(".keyframe-list"), entry);
+    }
     renderAnalysisText(card.querySelector(".coach-text"), entry.coach);
     renderAnalysisText(card.querySelector(".diagnosis-text"), entry.diagnosis);
     renderAnalysisText(card.querySelector(".coach-ai-text"), entry.coachAi);

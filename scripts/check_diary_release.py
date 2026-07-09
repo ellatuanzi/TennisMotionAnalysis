@@ -38,17 +38,20 @@ def validate_entries(entries: list[dict], label: str) -> tuple[list[str], list[s
     if key in seen:
       errors.append(f"{label}: duplicate entry {key}")
     seen.add(key)
+    keyframes_hidden = bool(entry.get("hideKeyframes") or entry.get("keyframesHidden"))
     for field in ["date", "title", "trainingContent", "sessionName", "keyframes"]:
       if field not in entry:
         errors.append(f"{label}: entry {index} is missing {field}")
-    if not isinstance(entry.get("keyframes"), list) or not entry.get("keyframes"):
+    if not keyframes_hidden and (not isinstance(entry.get("keyframes"), list) or not entry.get("keyframes")):
       errors.append(f"{label}: entry {index} has no keyframes")
     if not entry.get("videoUrl") and not entry.get("rawVideoUrl") and not entry.get("previewVideoUrl"):
       errors.append(f"{label}: entry {index} has no video URL")
     checked_video_assets: set[str] = set()
     for frame_index, frame in enumerate(entry.get("keyframes") or [], start=1):
-      if not frame.get("image"):
+      if not keyframes_hidden and not frame.get("image"):
         errors.append(f"{label}: entry {index} frame {frame_index} has no keyframe image")
+      if keyframes_hidden:
+        continue
       for field in ["image", "rawFrame"]:
         value = frame.get(field)
         if isinstance(value, str) and (value.startswith("./") or value.startswith("assets/") or value.startswith("exports/")):
