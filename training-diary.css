@@ -680,13 +680,37 @@ textarea {
   background: #fff9f6;
 }
 
-.keyframe-card img {
+.keyframe-image-button {
+  width: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  cursor: zoom-in;
+  text-align: inherit;
+}
+
+.keyframe-image-button:focus-visible {
+  outline: 3px solid rgba(20, 122, 85, 0.4);
+  outline-offset: 3px;
+}
+
+.keyframe-image-button img {
   width: 100%;
   aspect-ratio: 16 / 10;
   object-fit: cover;
   border: 1px solid var(--line);
   border-radius: 6px;
   background: #eef2ef;
+  display: block;
+  transition:
+    border-color 160ms ease,
+    transform 160ms ease;
+}
+
+.keyframe-image-button:hover img {
+  border-color: rgba(20, 122, 85, 0.55);
+  transform: translateY(-1px);
 }
 
 .keyframe-card.empty {
@@ -788,6 +812,86 @@ textarea {
   font-size: 14px;
   font-weight: 520;
   line-height: 1.5;
+}
+
+body.keyframe-viewer-open {
+  overflow: hidden;
+}
+
+.keyframe-viewer[hidden] {
+  display: none;
+}
+
+.keyframe-viewer {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(10, 18, 16, 0.82);
+}
+
+.keyframe-viewer-panel {
+  position: relative;
+  display: grid;
+  gap: 12px;
+  width: min(100%, 1180px);
+  max-height: calc(100vh - 48px);
+  padding: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+  background: #101815;
+  box-shadow: 0 26px 90px rgba(0, 0, 0, 0.34);
+}
+
+.keyframe-viewer-image {
+  width: 100%;
+  max-height: calc(100vh - 170px);
+  object-fit: contain;
+  border-radius: 6px;
+  background: #0b1210;
+}
+
+.keyframe-viewer-close {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  display: inline-grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  border-radius: 999px;
+  background: rgba(16, 24, 21, 0.82);
+  color: #fff;
+  cursor: pointer;
+  font-size: 28px;
+  line-height: 1;
+}
+
+.keyframe-viewer-close:hover,
+.keyframe-viewer-close:focus-visible {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.keyframe-viewer-caption {
+  display: grid;
+  gap: 4px;
+  color: #dbe9e2;
+}
+
+.keyframe-viewer-caption strong {
+  color: #fff;
+  font-size: 18px;
+  font-weight: 760;
+}
+
+.keyframe-viewer-caption span {
+  color: #bfd0c8;
+  font-size: 14px;
+  font-weight: 520;
+  line-height: 1.45;
 }
 
 .detection-list {
