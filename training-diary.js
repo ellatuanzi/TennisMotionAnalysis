@@ -1053,6 +1053,19 @@ function renderDetectionList(container, detections = []) {
   container.append(list);
 }
 
+function appendKeyframeDetail(container, frame) {
+  const note = frame.aiNote || "Review this frame against the coach cue and motion-analysis overlay.";
+  if (!note) return;
+  const detail = document.createElement("details");
+  detail.className = "keyframe-detail";
+  const summary = document.createElement("summary");
+  summary.textContent = "Evidence & coach cue";
+  const body = document.createElement("p");
+  body.textContent = note;
+  detail.append(summary, body);
+  container.append(detail);
+}
+
 function renderKeyframes(container, entry) {
   const frames = normalizeKeyframes(entry.keyframes);
   container.innerHTML = "";
@@ -1093,9 +1106,8 @@ function renderKeyframes(container, entry) {
     const points = document.createElement("p");
     points.className = "keyframe-main-point";
     points.textContent = frame.points || "No key point detail entered yet.";
-    const ai = document.createElement("small");
-    ai.textContent = frame.aiNote || "Review this frame against the coach cue and motion-analysis overlay.";
-    node.append(label, points, ai);
+    node.append(label, points);
+    appendKeyframeDetail(node, frame);
     renderDetectionList(node, frame.detections || frame.keypointDetections || []);
     container.append(node);
   });

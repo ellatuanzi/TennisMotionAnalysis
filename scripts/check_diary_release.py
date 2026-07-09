@@ -11,6 +11,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 LOCAL_DATA = ROOT / "diary-data.json"
 PUBLISHED_DATA = ROOT / "published-diary" / "diary-data.json"
+VIDEO_WARN_BYTES = 45 * 1024 * 1024
+VIDEO_ERROR_BYTES = 95 * 1024 * 1024
 
 
 def load_entries(path: Path) -> list[dict]:
@@ -27,8 +29,9 @@ def entry_key(entry: dict) -> str:
   return str(entry.get("id") or f"{entry.get('date', '')}|{entry.get('sessionName') or entry.get('videoName') or entry.get('title', '')}|{entry.get('createdAt', '')}")
 
 
-def validate_entries(entries: list[dict], label: str) -> list[str]:
+def validate_entries(entries: list[dict], label: str) -> tuple[list[str], list[str]]:
   errors: list[str] = []
+  warnings: list[str] = []
   seen: set[str] = set()
   for index, entry in enumerate(entries, start=1):
     key = entry_key(entry)
@@ -42,6 +45,7 @@ def validate_entries(entries: list[dict], label: str) -> list[str]:
       errors.append(f"{label}: entry {index} has no keyframes")
     if not entry.get("videoUrl") and not entry.get("rawVideoUrl") and not entry.get("previewVideoUrl"):
       errors.append(f"{label}: entry {index} has no video URL")
+    checked_video_assets: set[str] = set()
     for frame_index, frame in enumerate(entry.get("keyframes") or [], start=1):
       if not frame.get("image"):
         errors.append(f"{label}: entry {index} frame {frame_index} has no keyframe image")
@@ -55,9 +59,19 @@ def validate_entries(entries: list[dict], label: str) -> list[str]:
       value = entry.get(field)
       if isinstance(value, str) and (value.startswith("./") or value.startswith("assets/")):
         relative = value.removeprefix("./")
-        if not (ROOT / relative).exists():
+        if relative in checked_video_assets:
+          continue
+        checked_video_assets.add(relative)
+        asset_path = ROOT / relative
+        if not asset_path.exists():
           errors.append(f"{label}: entry {index} missing video asset {relative}")
-  return errors
+        else:
+          size = asset_path.stat().st_size
+          if size >= VIDEO_ERROR_BYTES:
+            errors.append(f"{label}: entry {index} video asset {relative} is too large for GitHub ({size / 1024 / 1024:.1f} MB)")
+          elif size >= VIDEO_WARN_BYTES:
+            warnings.append(f"{label}: entry {index} video asset {relative} is large ({size / 1024 / 1024:.1f} MB); prefer Drive raw video plus a compressed preview")
+  return errors, warnings
 
 
 def summarize(entries: list[dict]) -> str:
@@ -73,10 +87,12 @@ def summarize(entries: list[dict]) -> str:
 def main() -> int:
   local_entries = load_entries(LOCAL_DATA)
   published_entries = load_entries(PUBLISHED_DATA) if PUBLISHED_DATA.exists() else []
-  errors = validate_entries(local_entries, "diary-data.json")
+  errors, warnings = validate_entries(local_entries, "diary-data.json")
 
   if published_entries:
-    errors.extend(validate_entries(published_entries, "published-diary/diary-data.json"))
+    published_errors, published_warnings = validate_entries(published_entries, "published-diary/diary-data.json")
+    errors.extend(published_errors)
+    warnings.extend(published_warnings)
     local_keys = [entry_key(entry) for entry in local_entries]
     published_keys = [entry_key(entry) for entry in published_entries]
     if local_keys != published_keys:
@@ -89,6 +105,10 @@ def main() -> int:
     return 1
 
   print(f"Diary release check passed: {len(local_entries)} entries")
+  if warnings:
+    print("Warnings:")
+    for warning in warnings:
+      print(f"- {warning}")
   print(summarize(local_entries))
   return 0
 

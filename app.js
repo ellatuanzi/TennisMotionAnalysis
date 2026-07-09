@@ -5492,13 +5492,19 @@ function packageDiaryEntry(entry) {
   const packaged = structuredClone(entry);
   const files = [];
   const base = sanitizePackagePathPart(entry.sessionName || entry.videoName || entry.id);
+  const externalRawVideoUrl =
+    typeof entry.rawVideoUrl === "string" && entry.rawVideoUrl.trim() && !entry.rawVideoUrl.trim().startsWith("blob:")
+      ? entry.rawVideoUrl.trim()
+      : "";
   if (currentPlayerVideoFile) {
     const extension = fileExtensionFromName(currentPlayerVideoFile.name, "mov");
     const videoPath = `assets/${base}.${extension}`;
     files.push({ name: videoPath, blob: currentPlayerVideoFile, modifiedAt: currentPlayerVideoFile.lastModified ? new Date(currentPlayerVideoFile.lastModified) : new Date() });
     packaged.videoUrl = `./${videoPath}`;
     packaged.previewVideoUrl = `./${videoPath}`;
-    packaged.rawVideoUrl = `./${videoPath}`;
+    packaged.rawVideoUrl = externalRawVideoUrl || `./${videoPath}`;
+  } else if (externalRawVideoUrl) {
+    packaged.rawVideoUrl = externalRawVideoUrl;
   }
   packaged.keyframes = (packaged.keyframes || []).map((frame, index) => {
     const nextFrame = { ...frame };
