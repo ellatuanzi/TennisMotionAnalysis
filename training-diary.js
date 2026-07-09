@@ -848,6 +848,32 @@ function syncVideoFilterOptions() {
   dom.videoFilter.value = current === "all" || seen.has(current) ? current : "all";
 }
 
+function copySelectOptions(target, source, selectedValue) {
+  target.innerHTML = "";
+  Array.from(source.options).forEach((option) => {
+    target.append(option.cloneNode(true));
+  });
+  target.value = selectedValue;
+  if (target.value !== selectedValue) target.value = "all";
+}
+
+function bindEntrySelectors(card, entry) {
+  const strokeSelect = card.querySelector(".entry-stroke-filter");
+  const videoSelect = card.querySelector(".entry-video-filter");
+  copySelectOptions(strokeSelect, dom.strokeFilter, dom.strokeFilter.value === "all" ? entryContent(entry) : dom.strokeFilter.value);
+  copySelectOptions(videoSelect, dom.videoFilter, dom.videoFilter.value === "all" ? entrySessionName(entry) : dom.videoFilter.value);
+
+  strokeSelect.addEventListener("change", () => {
+    dom.strokeFilter.value = strokeSelect.value;
+    dom.videoFilter.value = "all";
+    renderEntries();
+  });
+  videoSelect.addEventListener("change", () => {
+    dom.videoFilter.value = videoSelect.value;
+    renderEntries();
+  });
+}
+
 function renderCalendar() {
   const year = calendarCursor.getFullYear();
   const month = calendarCursor.getMonth();
@@ -1022,6 +1048,7 @@ function renderEntries() {
     const card = dom.template.content.firstElementChild.cloneNode(true);
     const frames = normalizeKeyframes(entry.keyframes);
     card.querySelector(".card-date").textContent = formatDate(entry.date);
+    bindEntrySelectors(card, entry);
     card.querySelector(".card-title").textContent = entry.title;
     card.querySelector(".session-pill").textContent = entrySessionName(entry);
     card.querySelector(".stroke-pill").textContent = contentLabel(entryContent(entry));
