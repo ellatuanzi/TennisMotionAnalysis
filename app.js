@@ -347,8 +347,92 @@ const forehandStageTemplate = [
   },
 ];
 
+const backhandStageTemplate = [
+  {
+    id: "ready",
+    name: "1. Ready / Split Step",
+    standard: "Balanced athletic base with eyes tracking the incoming ball before the turn starts.",
+    metric: "Ready balance",
+    fault: "Late preparation",
+    coachComment: "Start the backhand from a quiet base so the turn can happen before the ball arrives.",
+    lookFor: "Feet active, head still, racket in front, and shoulders ready to turn.",
+    next: "Recover earlier and start the backhand preparation before the ball is close.",
+  },
+  {
+    id: "unitturn",
+    name: "2. Unit Turn",
+    standard: "Shoulders and hips turn together while the racket moves with the body, not just the arm.",
+    metric: "Shoulder turn",
+    fault: "Arm-only takeback",
+    coachComment: "Use the torso turn to set the backhand; avoid pulling the racket back with only the hands.",
+    lookFor: "Chest turns sideways, non-hitting side supports the racket, and the head stays quiet.",
+    next: "Turn the shoulders earlier and keep the racket connected to the body turn.",
+  },
+  {
+    id: "racketset",
+    name: "3. Racket Set",
+    standard: "Racket is prepared early with the face organized before the forward swing begins.",
+    metric: "Racket preparation",
+    fault: "Late racket set",
+    coachComment: "The racket should be set before the bounce/approach window so the swing is not rushed.",
+    lookFor: "Racket head organized, hands calm, and the hitting arm ready before acceleration.",
+    next: "Set the racket earlier and keep the face stable through preparation.",
+  },
+  {
+    id: "load",
+    name: "4. Load / Spacing",
+    standard: "Player loads through the legs while creating enough distance from the ball.",
+    metric: "Spacing",
+    fault: "Crowded load",
+    coachComment: "Backhand power needs space: load the legs while keeping the contact lane in front of the body.",
+    lookFor: "Outside leg supports the turn, shoulders stay coiled, and the ball is not too close.",
+    next: "Create more room before the swing and load from the legs instead of reaching late.",
+  },
+  {
+    id: "forward",
+    name: "5. Forward Swing",
+    standard: "Legs and trunk start the forward move while the racket travels smoothly toward contact.",
+    metric: "Forward path",
+    fault: "Arm-dominant swing",
+    coachComment: "Let the body drive the backhand forward; the arm should release after the turn and load.",
+    lookFor: "Weight transfers forward, racket path is clean, and the head stays stable.",
+    next: "Start the forward swing from the ground and keep the racket path connected.",
+  },
+  {
+    id: "contact",
+    name: "6. Contact",
+    standard: "Contact is in front with stable spacing, quiet head, and a controlled racket face.",
+    metric: "Contact spacing",
+    fault: "Late or crowded contact",
+    coachComment: "Meet the ball in front with enough space so the racket can extend through the line.",
+    lookFor: "Contact in front of the front hip, stable head, and racket face not rolling open/closed.",
+    next: "Meet the ball earlier in front and keep the contact lane clear.",
+  },
+  {
+    id: "followthrough",
+    name: "7. Follow-through",
+    standard: "Swing continues through the ball with shoulders finishing and the racket decelerating naturally.",
+    metric: "Extension",
+    fault: "Short follow-through",
+    coachComment: "Do not stop at contact; extend through the ball and let the body finish the stroke.",
+    lookFor: "Racket travels through the target line, chest rotates forward, and balance is maintained.",
+    next: "Extend through contact and complete the shoulder turn after the hit.",
+  },
+  {
+    id: "recovery",
+    name: "8. Recovery",
+    standard: "Player regains balance and returns to a ready position for the next ball.",
+    metric: "Recovery balance",
+    fault: "Slow recovery",
+    coachComment: "A good backhand finishes in balance so the next movement can start immediately.",
+    lookFor: "Feet recover, posture stays tall, and the racket returns to a ready position.",
+    next: "Finish balanced and recover the feet sooner after the swing.",
+  },
+];
+
 function strokeStageTemplate(stroke = dom.strokeType?.value) {
   if (stroke === "forehand") return forehandStageTemplate;
+  if (stroke === "backhand") return backhandStageTemplate;
   return serveStageTemplate;
 }
 
@@ -4444,6 +4528,16 @@ function analyzeMotion() {
     stageScores.contact = Math.round(clamp(score + (Number(contactHeight) - 0.56) * 55, 48, 97));
     stageScores.finish = Math.round(clamp(score - 1 + (knee < 134 ? 2 : -2), 48, 96));
   }
+  if (dom.strokeType.value === "backhand") {
+    stageScores.ready = Math.round(clamp(score + 3, 50, 98));
+    stageScores.unitturn = Math.round(clamp(score + (shoulderHip - 34) * 0.3, 48, 97));
+    stageScores.racketset = Math.round(clamp(score - 1 + (racketSpeed - 78) * 0.06, 48, 97));
+    stageScores.load = Math.round(clamp(score + (shoulderHip - 36) * 0.28, 48, 97));
+    stageScores.forward = Math.round(clamp(score - 2 + (racketSpeed - 78) * 0.08, 48, 97));
+    stageScores.contact = Math.round(clamp(score + (Number(contactHeight) - 0.56) * 50, 48, 97));
+    stageScores.followthrough = Math.round(clamp(score - 1 + (elbow - 92) * 0.08, 48, 96));
+    stageScores.recovery = Math.round(clamp(score - 1 + (knee < 134 ? 2 : -2), 48, 96));
+  }
 
   return {
     score,
@@ -4606,7 +4700,50 @@ function stageMetricSupport(stage, data) {
       { label: "Recovery", value: `${Math.max(0.18, data.syncGap / 1000).toFixed(2)}s`, note: "Ready for next ball" },
     ],
   };
-  if (strokeStageTemplate()[0]?.id === "ready") return forehandMetrics[stage.id] || [];
+  const backhandMetrics = {
+    ready: [
+      { label: "Ready balance", value: `${data.stability}/100`, note: "Athletic base before the turn" },
+      { label: "Tracking quality", value: `${data.trackingQuality || "--"}`, note: "Pose/keypoint confidence" },
+      { label: "Recovery timing", value: `${Math.max(0.18, data.syncGap / 1000).toFixed(2)}s`, note: "Ready before the next move" },
+    ],
+    unitturn: [
+      { label: "Shoulder turn", value: `${data.shoulderHip}°`, note: "Body turns before arm swing" },
+      { label: "Head control", value: `${data.stability}/100`, note: "Quiet head during turn" },
+      { label: "Racket connection", value: "Review", note: "Racket moves with the torso" },
+    ],
+    racketset: [
+      { label: "Racket set", value: `${stageQuality(data.stageScores?.racketset || data.score)}`, note: "Prepared before acceleration" },
+      { label: "Racket speed", value: `${data.racketSpeed} km/h`, note: "Swing speed estimate" },
+      { label: "Face control", value: "Review", note: "Racket face stable before forward swing" },
+    ],
+    load: [
+      { label: "Spacing", value: `${Math.round(clamp(data.score - 1, 50, 96))}/100`, note: "Room to swing in front" },
+      { label: "Shoulder-hip separation", value: `${data.shoulderHip}°`, note: "Coil before forward swing" },
+      { label: "Knee bend", value: `${data.knee}°`, note: "Leg load depth" },
+    ],
+    forward: [
+      { label: "Forward path", value: `${Math.round(clamp(data.score + 2, 55, 96))}/100`, note: "Connected swing path" },
+      { label: "Racket speed", value: `${data.racketSpeed} km/h`, note: "Forward acceleration estimate" },
+      { label: "Body transfer", value: `${stageQuality(data.stageScores?.forward || data.score)}`, note: "Ground-up sequence" },
+    ],
+    contact: [
+      { label: "Contact height", value: `${data.contactHeight}`, note: "Body ratio" },
+      { label: "Ball-racket window", value: data.ballContactFrame == null ? "Review" : `frame ${data.ballContactFrame}`, note: "Closest tracked contact" },
+      { label: "Spacing", value: `${Math.round(clamp(data.score - 2, 50, 96))}/100`, note: "Contact in front" },
+    ],
+    followthrough: [
+      { label: "Extension", value: `${data.elbow}°`, note: "Arm extends through the ball" },
+      { label: "Finish path", value: `${stageQuality(data.stageScores?.followthrough || data.score)}`, note: "Complete swing path" },
+      { label: "Balance drift", value: "Review", note: "Check body control after contact" },
+    ],
+    recovery: [
+      { label: "Recovery balance", value: `${stageQuality(data.stageScores?.recovery || data.score)}`, note: "Ready after the hit" },
+      { label: "Recovery timing", value: `${Math.max(0.18, data.syncGap / 1000).toFixed(2)}s`, note: "Return to ready" },
+      { label: "Foot reset", value: "Review", note: "Feet recover for next ball" },
+    ],
+  };
+  if (dom.strokeType.value === "forehand") return forehandMetrics[stage.id] || [];
+  if (dom.strokeType.value === "backhand") return backhandMetrics[stage.id] || [];
 
   const metrics = {
     setup: [
@@ -4682,15 +4819,16 @@ function statusClass(quality = "") {
 
 function stageReportGroup(stageId) {
   if (["ready", "unitturn"].includes(stageId)) return "Preparation";
+  if (["racketset", "load"].includes(stageId)) return "Preparation & Spacing";
   if (["forward", "contact"].includes(stageId)) return "Swing & Contact";
-  if (stageId === "finish") return "Finish & Recovery";
+  if (["finish", "followthrough", "recovery"].includes(stageId)) return "Finish & Recovery";
   if (["setup", "toss", "load"].includes(stageId)) return "Preparation & Load";
   if (["drop", "acceleration", "contact"].includes(stageId)) return "Racket Chain & Contact";
   return "Deceleration & Finish";
 }
 
 function stageIdealValue(stage) {
-  const ideals = {
+  const serveIdeals = {
     setup: "Repeatable base, quiet head",
     toss: "Full toss arm, racket stays up",
     load: "Legs/hips load before upper body",
@@ -4699,11 +4837,29 @@ function stageIdealValue(stage) {
     contact: "Wrist clearly above shoulder",
     deceleration: "Leg drive finishes before contact",
     finish: "Soft front-knee landing",
+  };
+  const forehandIdeals = {
     ready: "Balanced base before each ball",
     unitturn: "Early shoulder turn and spacing",
     forward: "Low-to-high path with body transfer",
     contact: "Contact in front with clear spacing",
+    finish: "Balanced finish and recovery",
   };
+  const backhandIdeals = {
+    ready: "Balanced base before the turn",
+    unitturn: "Early shoulder turn",
+    racketset: "Racket prepared before acceleration",
+    load: "Loaded legs with clear spacing",
+    forward: "Connected forward swing",
+    contact: "Contact in front with clear spacing",
+    followthrough: "Extend through contact",
+    recovery: "Balanced reset for next ball",
+  };
+  const ideals = dom.strokeType.value === "forehand"
+    ? forehandIdeals
+    : dom.strokeType.value === "backhand"
+      ? backhandIdeals
+      : serveIdeals;
   return ideals[stage.id] || stage.standard;
 }
 
@@ -6388,6 +6544,63 @@ function forehandKeyframePlan(duration, data) {
   );
 }
 
+function backhandKeyframePlan(duration, data) {
+  const points = [
+    {
+      phase: "Ready / Split Step",
+      phaseId: "ready",
+      time: duration * 0.08,
+      note: "Ready base before the backhand; check balance and early preparation.",
+    },
+    {
+      phase: "Unit Turn",
+      phaseId: "unitturn",
+      time: duration * 0.2,
+      note: "Shoulders and hips turn together before the racket accelerates.",
+    },
+    {
+      phase: "Racket Set",
+      phaseId: "racketset",
+      time: duration * 0.32,
+      note: "Racket is prepared early with the face organized before the forward swing.",
+    },
+    {
+      phase: "Load / Spacing",
+      phaseId: "load",
+      time: duration * 0.42,
+      note: "Create enough room from the ball while loading through the legs.",
+    },
+    {
+      phase: "Forward Swing",
+      phaseId: "forward",
+      time: duration * 0.55,
+      note: "Start the forward swing from the ground and keep the racket path connected.",
+    },
+    {
+      phase: "Contact",
+      phaseId: "contact",
+      time: duration * 0.65,
+      note: `Contact should be in front with clear spacing; estimated contact height ${data.contactHeight}.`,
+    },
+    {
+      phase: "Follow-through",
+      phaseId: "followthrough",
+      time: duration * 0.74,
+      note: "Extend through the ball and complete the shoulder turn after contact.",
+    },
+    {
+      phase: "Recovery",
+      phaseId: "recovery",
+      time: duration * 0.84,
+      note: "Finish balanced and recover the feet for the next ball.",
+    },
+  ];
+  return points.map((point) => ({
+    ...point,
+    time: clamp(point.time, 0.05, Math.max(0.05, duration - 0.05)),
+  }));
+}
+
 function serveKeyframePlan(duration, data) {
   return [
     {
@@ -6443,6 +6656,7 @@ function serveKeyframePlan(duration, data) {
 
 function keyframePlanForStroke(duration, data) {
   if (dom.strokeType.value === "forehand") return forehandKeyframePlan(duration, data);
+  if (dom.strokeType.value === "backhand") return backhandKeyframePlan(duration, data);
   return serveKeyframePlan(duration, data);
 }
 
