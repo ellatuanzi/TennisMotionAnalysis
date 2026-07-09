@@ -6202,7 +6202,7 @@ function serveKeyframePlan(duration, data) {
     {
       phase: "Racket Drop",
       phaseId: "drop",
-      time: duration * 0.45,
+      time: duration * 0.38,
       note: "Racket drop should happen after the legs have loaded and started driving.",
     },
     {
@@ -6220,13 +6220,13 @@ function serveKeyframePlan(duration, data) {
     {
       phase: "Deceleration",
       phaseId: "deceleration",
-      time: duration * 0.76,
+      time: duration * 0.72,
       note: "Leg drive should not arrive late after racket drop/contact.",
     },
     {
       phase: "Finish",
       phaseId: "finish",
-      time: duration * 0.88,
+      time: duration * 0.76,
       note: "Land with a soft front knee and balanced finish.",
     },
   ];
