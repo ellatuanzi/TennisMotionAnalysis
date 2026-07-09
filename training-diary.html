@@ -64,11 +64,7 @@
               <input id="dateFilter" type="date" />
             </label>
             <label>
-              Search
-              <input id="searchFilter" type="search" placeholder="serve, toss, low-to-high" />
-            </label>
-            <label>
-              Training focus
+              Training content
               <select id="strokeFilter">
                 <option value="all">All</option>
                 <option value="serve">Serve</option>
@@ -77,6 +73,16 @@
                 <option value="volley">Volley</option>
                 <option value="footwork">Footwork</option>
               </select>
+            </label>
+            <label>
+              Video / session
+              <select id="videoFilter">
+                <option value="all">All videos</option>
+              </select>
+            </label>
+            <label>
+              Search
+              <input id="searchFilter" type="search" placeholder="serve, toss, low-to-high" />
             </label>
             <button class="secondary-action" id="clearFiltersButton" type="button">Clear Filters</button>
           </div>
@@ -103,6 +109,7 @@
             <h2 class="card-title"></h2>
           </div>
           <div class="card-actions">
+            <span class="session-pill"></span>
             <span class="stroke-pill"></span>
           </div>
         </div>
@@ -131,6 +138,6 @@
       </article>
     </template>
 
-    <script src="./training-diary.js?v=20260708-keep-diary-download-video"></script>
+    <script src="./training-diary.js?v=20260708-video-session-filters"></script>
   </body>
 </html>

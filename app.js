@@ -5208,7 +5208,15 @@ function createDiaryDataDownload(entries) {
 }
 
 function diaryEntryDate() {
-  return new Date().toISOString().slice(0, 10);
+  const date = new Date();
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function compactDiarySessionName(content, date = new Date()) {
+  const cleanContent = String(content || "training").toLowerCase().replace(/[^a-z0-9]+/g, "") || "training";
+  const time = `${String(date.getHours()).padStart(2, "0")}${String(date.getMinutes()).padStart(2, "0")}`;
+  const day = `${String(date.getMonth() + 1).padStart(2, "0")}${String(date.getDate()).padStart(2, "0")}${date.getFullYear()}`;
+  return `${cleanContent}${time}${day}`;
 }
 
 function keyframeTimeLabel(index) {
@@ -5225,7 +5233,10 @@ function keyframeTimeLabel(index) {
 
 function analysisDiaryEntry(options = {}) {
   const stages = buildServeStageDetails(latestAnalysis);
+  const createdDate = new Date();
   const strokeText = dom.strokeType.options[dom.strokeType.selectedIndex].text;
+  const trainingContent = dom.strokeType.value;
+  const sessionName = compactDiarySessionName(trainingContent, createdDate);
   const handText = dom.dominantHand.options[dom.dominantHand.selectedIndex].text;
   const fileName = dom.childFileName.textContent && dom.childFileName.textContent !== "Choose video"
     ? dom.childFileName.textContent
@@ -5252,13 +5263,16 @@ function analysisDiaryEntry(options = {}) {
   return {
     id: `analysis-${Date.now()}`,
     source: "motion-analysis",
-    createdAt: new Date().toISOString(),
+    createdAt: createdDate.toISOString(),
     date: diaryEntryDate(),
-    title: `${fileName} · ${strokeText} analysis`,
-    stroke: dom.strokeType.value,
+    title: `${sessionName} · ${strokeText} analysis`,
+    stroke: trainingContent,
+    trainingContent,
+    sessionName,
     videoUrl: "",
     rawVideoUrl: dom.playerVideoSourceUrl?.value.trim() || "",
-    videoName: fileName,
+    videoName: sessionName,
+    sourceVideoName: fileName,
     keyframes: keyframeEntries,
     coach: stages.map((stage) => `${stageShortName(stage.name)}: ${stage.coachComment}`).join("\n"),
     diagnosis: [

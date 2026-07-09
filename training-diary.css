@@ -476,18 +476,22 @@ textarea {
 }
 
 .card-date {
-  color: var(--muted);
-  font-size: 14px;
+  color: var(--ink);
+  font-size: clamp(24px, 2.1vw, 34px);
   font-weight: 900;
+  line-height: 1.15;
 }
 
 .diary-card .card-title {
-  margin-top: 3px;
-  font-size: clamp(26px, 2.5vw, 34px);
-  line-height: 1.25;
+  margin-top: 8px;
+  color: #34413c;
+  font-size: clamp(17px, 1.35vw, 22px);
+  font-weight: 850;
+  line-height: 1.35;
 }
 
-.stroke-pill {
+.stroke-pill,
+.session-pill {
   display: inline-flex;
   align-items: center;
   min-height: 34px;
@@ -499,6 +503,16 @@ textarea {
   font-weight: 950;
   text-transform: uppercase;
   white-space: nowrap;
+}
+
+.session-pill {
+  max-width: min(52vw, 320px);
+  overflow: hidden;
+  border: 1px solid var(--line);
+  background: #fbfcfb;
+  color: var(--ink);
+  text-overflow: ellipsis;
+  text-transform: none;
 }
 
 .video-link-wrap a {
