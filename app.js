@@ -293,6 +293,64 @@ const serveStageTemplate = [
   },
 ];
 
+const forehandStageTemplate = [
+  {
+    id: "ready",
+    name: "1. Ready / Split Step",
+    standard: "Balanced ready position with eyes tracking the ball and weight prepared to move forward.",
+    metric: "Ready balance",
+    fault: "Late preparation",
+    coachComment: "Start from a quiet athletic base so each forehand begins on time instead of rushing the swing.",
+    lookFor: "Feet active, head steady, racket in front, and body balanced before the turn.",
+    next: "Recover earlier and prepare the racket before the ball arrives.",
+  },
+  {
+    id: "unitturn",
+    name: "2. Unit Turn",
+    standard: "Shoulders and hips turn together while the non-hitting side helps organize spacing.",
+    metric: "Shoulder turn",
+    fault: "Small or late turn",
+    coachComment: "Use the body turn first; avoid taking the racket back with only the arm.",
+    lookFor: "Chest turns sideways, racket sets behind the body, and spacing stays comfortable.",
+    next: "Turn the shoulders earlier and keep the hitting arm relaxed.",
+  },
+  {
+    id: "forward",
+    name: "3. Forward Swing",
+    standard: "Racket drops below the ball and accelerates forward with the legs and trunk leading the arm.",
+    metric: "Low-to-high path",
+    fault: "Arm-dominant swing",
+    coachComment: "Let the legs and trunk start the forward swing so the racket can accelerate smoothly.",
+    lookFor: "Racket below the ball, stable head, and forward body transfer into the hit.",
+    next: "Start the swing from the ground and keep the racket path low-to-high.",
+  },
+  {
+    id: "contact",
+    name: "4. Contact",
+    standard: "Contact is in front of the body with a stable head, firm spacing, and controlled racket face.",
+    metric: "Contact spacing",
+    fault: "Crowded or late contact",
+    coachComment: "Meet the ball in front with enough space between the body and racket.",
+    lookFor: "Wrist and racket in front of the hip, eyes/head quiet, and contact not jammed.",
+    next: "Create more space and contact the ball earlier in front.",
+  },
+  {
+    id: "finish",
+    name: "5. Finish / Recovery",
+    standard: "Follow-through completes across the body and the player recovers balance for the next ball.",
+    metric: "Finish balance",
+    fault: "Short finish",
+    coachComment: "Finish the swing and recover; a balanced finish shows the whole chain worked together.",
+    lookFor: "Racket wraps naturally, chest finishes forward, and feet can recover after contact.",
+    next: "Complete the follow-through and return to ready position.",
+  },
+];
+
+function strokeStageTemplate(stroke = dom.strokeType?.value) {
+  if (stroke === "forehand") return forehandStageTemplate;
+  return serveStageTemplate;
+}
+
 let latestReport = "";
 let animationFrameId = null;
 let latestAnalysis = null;
@@ -4378,6 +4436,13 @@ function analyzeMotion() {
     deceleration: Math.round(clamp(score - 4 + (knee < 130 ? 2 : -3), 48, 96)),
     finish: Math.round(clamp(score - 2 + (knee < 132 ? 3 : -2), 48, 96)),
   };
+  if (dom.strokeType.value === "forehand") {
+    stageScores.ready = Math.round(clamp(score + 4, 50, 98));
+    stageScores.unitturn = Math.round(clamp(score + (shoulderHip - 34) * 0.32, 48, 97));
+    stageScores.forward = Math.round(clamp(score - 2 + (racketSpeed - 78) * 0.08, 48, 97));
+    stageScores.contact = Math.round(clamp(score + (Number(contactHeight) - 0.56) * 55, 48, 97));
+    stageScores.finish = Math.round(clamp(score - 1 + (knee < 134 ? 2 : -2), 48, 96));
+  }
 
   return {
     score,
@@ -4402,6 +4467,7 @@ function analyzeMotion() {
     syncGap: Math.round(clamp(180 - (score - 60) * 3.2, 36, 210)),
     stability: Math.round(clamp(score + 4, 62, 96)),
     stageScores,
+    forehandSwingCount: detectedForehandSwingCount(),
   };
 }
 
@@ -4420,14 +4486,25 @@ function stageQuality(score) {
   return "Needs focus";
 }
 
+function detectedForehandSwingCount() {
+  const swingIds = new Set(
+    keyframes
+      .map((frame) => Number(frame.swingIndex))
+      .filter((value) => Number.isFinite(value) && value > 0),
+  );
+  return swingIds.size || 1;
+}
+
 function normalizeStageName(value = "") {
   return String(value).toLowerCase().replace(/^[0-9. ]+/, "").replace(/[^a-z]+/g, "");
 }
 
 function keyframeForStage(stage) {
   const stageKey = normalizeStageName(stage.name || stage.phase || stage.id);
-  return keyframes.find((frame) => normalizeStageName(frame.phase) === stageKey)
-    || keyframes.find((frame) => normalizeStageName(stage.name).includes(normalizeStageName(frame.phase)));
+  return keyframes.find((frame) => frame.phaseId === stage.id)
+    || keyframes.find((frame) => normalizeStageName(frame.phase) === stageKey)
+    || keyframes.find((frame) => normalizeStageName(frame.phase).includes(stageKey))
+    || keyframes.find((frame) => stageKey.includes(normalizeStageName(frame.phase)));
 }
 
 function stageImageCacheKey(stage) {
@@ -4501,6 +4578,35 @@ function keyframeImageForStage(stage) {
 }
 
 function stageMetricSupport(stage, data) {
+  const forehandMetrics = {
+    ready: [
+      { label: "Ready balance", value: `${data.stability}/100`, note: "Athletic base before the ball" },
+      { label: "Hits sampled", value: `${data.forehandSwingCount || 1}`, note: "Forehands identified in this video" },
+      { label: "Tracking quality", value: `${data.trackingQuality || "--"}`, note: "Pose/keypoint confidence" },
+    ],
+    unitturn: [
+      { label: "Shoulder turn", value: `${data.shoulderHip}°`, note: "Body turns before arm swing" },
+      { label: "Racket set", value: "Early", note: "Racket prepared before forward swing" },
+      { label: "Spacing", value: "Review", note: "Check non-hitting side and distance" },
+    ],
+    forward: [
+      { label: "Racket speed", value: `${data.racketSpeed} km/h`, note: "Forward acceleration estimate" },
+      { label: "Low-to-high", value: `${Math.round(clamp(data.score + 4, 55, 96))}/100`, note: "Swing path estimate" },
+      { label: "Body transfer", value: `${stageQuality(data.stageScores?.forward || data.score)}`, note: "Ground-up sequence" },
+    ],
+    contact: [
+      { label: "Contact height", value: `${data.contactHeight}`, note: "Body ratio" },
+      { label: "Ball-racket window", value: data.ballContactFrame == null ? "Review" : `frame ${data.ballContactFrame}`, note: "Closest tracked contact" },
+      { label: "Spacing", value: `${Math.round(clamp(data.score - 2, 50, 96))}/100`, note: "Room to swing in front" },
+    ],
+    finish: [
+      { label: "Finish balance", value: `${stageQuality(data.stageScores?.finish || data.score)}`, note: "Recovery after swing" },
+      { label: "Follow-through", value: "Across body", note: "Complete deceleration path" },
+      { label: "Recovery", value: `${Math.max(0.18, data.syncGap / 1000).toFixed(2)}s`, note: "Ready for next ball" },
+    ],
+  };
+  if (strokeStageTemplate()[0]?.id === "ready") return forehandMetrics[stage.id] || [];
+
   const metrics = {
     setup: [
       { label: "Base width", value: "0.42 body", note: "Feet outside hips for balance" },
@@ -4547,9 +4653,14 @@ function stageMetricSupport(stage, data) {
 }
 
 function buildServeStageDetails(data) {
+  return buildStrokeStageDetails(data);
+}
+
+function buildStrokeStageDetails(data) {
+  const template = strokeStageTemplate();
   const focusFromNotes = noteFocusItems(referenceBasis().notes || defaultCoachingNotes);
 
-  return serveStageTemplate.map((stage, index) => {
+  return template.map((stage, index) => {
     const stageScore = data.stageScores?.[stage.id] ?? data.score;
     return {
       ...stage,
@@ -4569,6 +4680,9 @@ function statusClass(quality = "") {
 }
 
 function stageReportGroup(stageId) {
+  if (["ready", "unitturn"].includes(stageId)) return "Preparation";
+  if (["forward", "contact"].includes(stageId)) return "Swing & Contact";
+  if (stageId === "finish") return "Finish & Recovery";
   if (["setup", "toss", "load"].includes(stageId)) return "Preparation & Load";
   if (["drop", "acceleration", "contact"].includes(stageId)) return "Racket Chain & Contact";
   return "Deceleration & Finish";
@@ -4584,6 +4698,10 @@ function stageIdealValue(stage) {
     contact: "Wrist clearly above shoulder",
     deceleration: "Leg drive finishes before contact",
     finish: "Soft front-knee landing",
+    ready: "Balanced base before each ball",
+    unitturn: "Early shoulder turn and spacing",
+    forward: "Low-to-high path with body transfer",
+    contact: "Contact in front with clear spacing",
   };
   return ideals[stage.id] || stage.standard;
 }
@@ -4631,12 +4749,17 @@ function renderMechanicsReportTable(stages) {
 }
 
 function renderStageAnalysis(data) {
-  const stages = buildServeStageDetails(data);
+  const stages = buildStrokeStageDetails(data);
   const lowest = stages.reduce((weakest, item) => (item.score < weakest.score ? item : weakest), stages[0]);
   const strongest = stages.reduce((best, item) => (item.score > best.score ? item : best), stages[0]);
+  const strokeText = dom.strokeType.options[dom.strokeType.selectedIndex].text;
 
-  dom.stageAnalysisStatus.textContent = "Generated from corrected keypoints, racket estimate, and serve progression notes";
-  dom.overallAnalysisText.textContent = `Overall, this serve is ${stageQuality(data.score).toLowerCase()} with the strongest stage in ${strongest.name.replace(/^[0-9. ]+/, "")}. The main training priority is ${lowest.name.replace(/^[0-9. ]+/, "").toLowerCase()}: ${lowest.next}`;
+  dom.stageAnalysisStatus.textContent = dom.strokeType.value === "forehand"
+    ? `Generated from ${data.forehandSwingCount || detectedForehandSwingCount()} identified forehand swing${(data.forehandSwingCount || detectedForehandSwingCount()) === 1 ? "" : "s"}, corrected keypoints, and racket estimate`
+    : "Generated from corrected keypoints, racket estimate, and serve progression notes";
+  dom.overallAnalysisText.textContent = dom.strokeType.value === "forehand"
+    ? `Overall, this forehand set is ${stageQuality(data.score).toLowerCase()} across ${data.forehandSwingCount || detectedForehandSwingCount()} identified swing${(data.forehandSwingCount || detectedForehandSwingCount()) === 1 ? "" : "s"}. The strongest phase is ${stageShortName(strongest.name)}. The main training priority is ${stageShortName(lowest.name).toLowerCase()}: ${lowest.next}`
+    : `Overall, this ${strokeText.toLowerCase()} is ${stageQuality(data.score).toLowerCase()} with the strongest stage in ${stageShortName(strongest.name)}. The main training priority is ${stageShortName(lowest.name).toLowerCase()}: ${lowest.next}`;
   renderMechanicsReportTable(stages);
   dom.stageAnalysisGrid.innerHTML = stages
     .map((stage) => {
@@ -4734,19 +4857,20 @@ function referenceBasis() {
 }
 
 function noteFocusItems(notes) {
+  const stageCount = strokeStageTemplate().length;
   return notes
     .split(/\n+/)
     .map((line) => line.replace(/^[-*\d.\s]+/, "").trim())
     .filter(Boolean)
     .filter((line) => !/^ATTICUS CAI/i.test(line))
-    .slice(0, serveStageTemplate.length);
+    .slice(0, stageCount);
 }
 
 function buildReport(data) {
   const strokeText = dom.strokeType.options[dom.strokeType.selectedIndex].text;
   const handText = dom.dominantHand.options[dom.dominantHand.selectedIndex].text;
   const basis = referenceBasis();
-  const stages = buildServeStageDetails(data);
+  const stages = buildStrokeStageDetails(data);
   const lowestStage = stages.reduce((weakest, item) => (item.score < weakest.score ? item : weakest), stages[0]);
   const strengths = [
     `The ${strokeText.toLowerCase()} rhythm is complete, with clear transitions from setup to follow-through.`,
@@ -4763,6 +4887,13 @@ function buildReport(data) {
     strengths[1] = "Toss and swing timing are well connected, with good awareness of high contact.";
     weaknesses[0] = "The drive from the legs into trunk rotation is slightly disconnected, limiting serve speed upside.";
   }
+  if (dom.strokeType.value === "forehand") {
+    const swingCount = data.forehandSwingCount || detectedForehandSwingCount();
+    strengths[0] = `${swingCount} forehand swing${swingCount === 1 ? "" : "s"} were identified and sampled, so the report reflects the pattern across the video rather than one frame.`;
+    strengths[1] = "The evaluation focuses on ready position, unit turn, forward swing, contact spacing, and recovery.";
+    weaknesses[0] = "The key priority is making preparation earlier so each forehand has time for spacing and a full turn.";
+    weaknesses[1] = "Contact and finish should be checked across multiple balls; one rushed swing can pull down the overall pattern.";
+  }
 
   if (basis.mode === "notes") {
     const focus = noteFocusItems(basis.notes);
@@ -4777,7 +4908,7 @@ function buildReport(data) {
     `Strengths: ${strengths.join(" ")}`,
     `Improvement areas: ${weaknesses.join(" ")}`,
     `Stage priority: ${lowestStage.name} scored ${lowestStage.score}. Next focus: ${lowestStage.next}`,
-    `Profile: This motion is currently control-oriented. Estimated racket speed is ${data.racketSpeed} km/h, estimated ball speed is ${data.ballSpeed} km/h, and the racket/ball overlays are pose-guided estimates rather than dedicated object detections. The next training focus should follow the serve-stage breakdown rather than only the overall score.`,
+    `Profile: This motion is currently control-oriented. Estimated racket speed is ${data.racketSpeed} km/h, estimated ball speed is ${data.ballSpeed} km/h, and the racket/ball overlays are pose-guided estimates rather than dedicated object detections. The next training focus should follow the ${strokeText.toLowerCase()} stage breakdown rather than only the overall score.`,
   ].join("\n\n");
 
   renderList(dom.strengthList, strengths);
@@ -4854,7 +4985,7 @@ function captureCurrentVideoStill(maxWidth = 520) {
 
 function currentStageSnapshots(data = latestAnalysis) {
   if (data && motionAnalysisReady) {
-    return buildServeStageDetails(data).map((stage) => ({
+    return buildStrokeStageDetails(data).map((stage) => ({
       id: stage.id,
       name: stage.name,
       score: stage.score,
@@ -4864,8 +4995,8 @@ function currentStageSnapshots(data = latestAnalysis) {
       focus: stage.next,
     }));
   }
-  return serveStageTemplate.map((stage, index) => {
-    const frame = keyframes[index];
+  return strokeStageTemplate().map((stage) => {
+    const frame = keyframes.find((item) => item.phaseId === stage.id) || keyframes.find((item) => normalizeStageName(item.phase).includes(normalizeStageName(stage.name)));
     return {
       id: stage.id,
       name: stage.name,
@@ -5112,7 +5243,7 @@ async function saveProgressSession() {
     return;
   }
   const basis = referenceBasis();
-  const stages = buildServeStageDetails(latestAnalysis);
+  const stages = buildStrokeStageDetails(latestAnalysis);
   const lowestStage = stages.reduce((weakest, item) => (item.score < weakest.score ? item : weakest), stages[0]);
   const saved = upsertProgressSession({
     id: activeProgressSessionId || `${Date.now()}`,
@@ -5232,7 +5363,7 @@ function keyframeTimeLabel(index) {
 }
 
 function analysisDiaryEntry(options = {}) {
-  const stages = buildServeStageDetails(latestAnalysis);
+  const stages = buildStrokeStageDetails(latestAnalysis);
   const createdDate = new Date();
   const strokeText = dom.strokeType.options[dom.strokeType.selectedIndex].text;
   const trainingContent = dom.strokeType.value;
@@ -5243,6 +5374,7 @@ function analysisDiaryEntry(options = {}) {
     : "Motion analysis session";
   const lowestStage = stages.reduce((weakest, item) => (item.score < weakest.score ? item : weakest), stages[0]);
   const keyframeEntries = stages.map((stage, index) => {
+    const representativeFrame = keyframeForStage(stage);
     const detections = (stage.metrics || []).map((metric) => ({
       label: metric.label,
       value: String(metric.value),
@@ -5250,7 +5382,7 @@ function analysisDiaryEntry(options = {}) {
     }));
     const metrics = detections.map((metric) => `${metric.label}: ${metric.value}`).join("; ");
     return {
-      time: keyframeTimeLabel(index),
+      time: representativeFrame ? keyframeTimeLabel(keyframes.indexOf(representativeFrame)) : keyframeTimeLabel(index),
       phase: stageShortName(stage.name),
       score: stage.score,
       status: stage.score >= 80 ? "good" : "issue",
@@ -5393,7 +5525,7 @@ function draftPayload() {
       anchors: anchorRecords(),
       lowQualityFrames: lowQualityFrames(10),
       tracking: trajectorySummary(),
-      serveStages: serveStageTemplate.map((stage) => ({
+      serveStages: strokeStageTemplate().map((stage) => ({
         id: stage.id,
         name: stage.name,
         standard: stage.standard,
@@ -5697,7 +5829,7 @@ async function refreshAnalysisStageImages() {
   const fps = Math.max(1, Number(dom.fpsInput?.value || 60));
   video.pause();
 
-  for (const stage of serveStageTemplate) {
+  for (const stage of strokeStageTemplate()) {
     const match = keyframeForStage(stage);
     if (!match) continue;
 
@@ -6004,6 +6136,113 @@ async function fallbackKeyframeCardsForStages(frames) {
   return cards;
 }
 
+function forehandSwingWindows(duration) {
+  const safeDuration = Math.max(1.2, Number(duration) || 1.2);
+  const count = Math.max(1, Math.min(6, Math.round(safeDuration / 4.2)));
+  const interval = safeDuration / (count + 1);
+  return Array.from({ length: count }, (_, index) => {
+    const center = clamp(interval * (index + 1), 0.6, Math.max(0.6, safeDuration - 0.45));
+    return {
+      index: index + 1,
+      center,
+      start: clamp(center - Math.min(0.9, interval * 0.32), 0, safeDuration),
+      end: clamp(center + Math.min(0.75, interval * 0.28), 0, safeDuration),
+    };
+  });
+}
+
+function forehandKeyframePlan(duration, data) {
+  const windows = forehandSwingWindows(duration);
+  data.forehandSwingCount = windows.length;
+  const offsets = {
+    ready: -0.72,
+    unitturn: -0.42,
+    forward: -0.16,
+    contact: 0,
+    finish: 0.34,
+  };
+  const notes = {
+    ready: "Ready base before this forehand; check balance and recovery from the previous ball.",
+    unitturn: "Shoulders turn early with the racket prepared behind the body.",
+    forward: "Racket drops under the ball and accelerates low-to-high.",
+    contact: `Contact should be in front with clear spacing; estimated contact height ${data.contactHeight}.`,
+    finish: "Follow-through completes and the player recovers for the next shot.",
+  };
+  return windows.flatMap((swing) =>
+    forehandStageTemplate.map((stage) => ({
+      phase: `Forehand ${swing.index} - ${stageShortName(stage.name)}`,
+      phaseId: stage.id,
+      swingIndex: swing.index,
+      time: clamp(swing.center + offsets[stage.id], 0.05, Math.max(0.05, duration - 0.05)),
+      note: notes[stage.id] || stage.next,
+    })),
+  );
+}
+
+function serveKeyframePlan(duration, data) {
+  return [
+    {
+      phase: "Setup",
+      phaseId: "setup",
+      time: duration * 0.06,
+      note: "Balanced platform stance and quiet head before toss.",
+    },
+    {
+      phase: "Toss",
+      phaseId: "toss",
+      time: duration * 0.18,
+      note: "Racket should stay up during toss and not move/drop too early.",
+    },
+    {
+      phase: "Load",
+      phaseId: "load",
+      time: duration * 0.32,
+      note: `Legs and hips load before upper body; shoulder-hip separation is ${data.shoulderHip}°.`,
+    },
+    {
+      phase: "Racket Drop",
+      phaseId: "drop",
+      time: duration * 0.45,
+      note: "Racket drop should happen after the legs have loaded and started driving.",
+    },
+    {
+      phase: "Acceleration",
+      phaseId: "acceleration",
+      time: duration * 0.56,
+      note: "Lead with the edge/back of racket; avoid opening racket face too early.",
+    },
+    {
+      phase: "Contact",
+      phaseId: "contact",
+      time: duration * 0.66,
+      note: `Contact height is around ${data.contactHeight} body ratio; wrist should be clearly above shoulder.`,
+    },
+    {
+      phase: "Deceleration",
+      phaseId: "deceleration",
+      time: duration * 0.76,
+      note: "Leg drive should not arrive late after racket drop/contact.",
+    },
+    {
+      phase: "Finish",
+      phaseId: "finish",
+      time: duration * 0.88,
+      note: "Land with a soft front knee and balanced finish.",
+    },
+  ];
+}
+
+function keyframePlanForStroke(duration, data) {
+  if (dom.strokeType.value === "forehand") return forehandKeyframePlan(duration, data);
+  return serveKeyframePlan(duration, data);
+}
+
+function keyframeGenerationStatus(data = latestAnalysis) {
+  if (dom.strokeType.value !== "forehand") return `${keyframes.length} key frames generated`;
+  const count = data?.forehandSwingCount || detectedForehandSwingCount();
+  return `${count} forehand swing${count === 1 ? "" : "s"} identified; ${keyframes.length} key frames generated`;
+}
+
 async function generateKeyframes(data) {
   await withTimeout(initPoseDetector(), 1000).catch(() => {
     poseRuntime.failed = true;
@@ -6015,55 +6254,16 @@ async function generateKeyframes(data) {
   const duration = reliableVideoDuration(video) || 2.2;
   const originalTime = video.currentTime || 0;
   const wasPaused = video.paused;
-  const frames = [
-    {
-      phase: "Setup",
-      time: duration * 0.06,
-      note: "Balanced platform stance and quiet head before toss.",
-    },
-    {
-      phase: "Toss",
-      time: duration * 0.18,
-      note: "Racket should stay up during toss and not move/drop too early.",
-    },
-    {
-      phase: "Load",
-      time: duration * 0.32,
-      note: `Legs and hips load before upper body; shoulder-hip separation is ${data.shoulderHip}°.`,
-    },
-    {
-      phase: "Racket Drop",
-      time: duration * 0.45,
-      note: "Racket drop should happen after the legs have loaded and started driving.",
-    },
-    {
-      phase: "Acceleration",
-      time: duration * 0.56,
-      note: "Lead with the edge/back of racket; avoid opening racket face too early.",
-    },
-    {
-      phase: "Contact",
-      time: duration * 0.66,
-      note: `Contact height is around ${data.contactHeight} body ratio; wrist should be clearly above shoulder.`,
-    },
-    {
-      phase: "Deceleration",
-      time: duration * 0.76,
-      note: "Leg drive should not arrive late after racket drop/contact.",
-    },
-    {
-      phase: "Finish",
-      time: duration * 0.88,
-      note: "Land with a soft front knee and balanced finish.",
-    },
-  ];
+  const frames = keyframePlanForStroke(duration, data);
 
   if (!metadataReady || reliableVideoDuration(video) <= 0) {
     keyframes = await fallbackKeyframeCardsForStages(frames);
     selectedKeyframeIndex = 0;
     keypointTrackingReady = false;
     renderKeyframes();
-    dom.keyframeStatus.textContent = `${keyframes.length} key frames generated from default timing`;
+    dom.keyframeStatus.textContent = dom.strokeType.value === "forehand"
+      ? `${data.forehandSwingCount || detectedForehandSwingCount()} forehand swing${(data.forehandSwingCount || detectedForehandSwingCount()) === 1 ? "" : "s"} identified; ${keyframes.length} key frames generated from default timing`
+      : `${keyframes.length} key frames generated from default timing`;
     updateWorkflow();
     return;
   }
@@ -6122,7 +6322,9 @@ async function generateKeyframes(data) {
     selectedKeyframeIndex = 0;
     keypointTrackingReady = false;
     renderKeyframes();
-    dom.keyframeStatus.textContent = `${keyframes.length} key frames generated from default timing`;
+    dom.keyframeStatus.textContent = dom.strokeType.value === "forehand"
+      ? `${data.forehandSwingCount || detectedForehandSwingCount()} forehand swing${(data.forehandSwingCount || detectedForehandSwingCount()) === 1 ? "" : "s"} identified; ${keyframes.length} key frames generated from default timing`
+      : `${keyframes.length} key frames generated from default timing`;
     updateWorkflow();
     return;
   }
@@ -6131,22 +6333,15 @@ async function generateKeyframes(data) {
   selectedKeyframeIndex = 0;
   keypointTrackingReady = false;
   renderKeyframes();
-  dom.keyframeStatus.textContent = `${keyframes.length} key frames generated`;
+  dom.keyframeStatus.textContent = keyframeGenerationStatus(data);
   updateWorkflow();
 }
 
 function renderKeyframes() {
   if (!keyframes.length) {
-    dom.keyframeGrid.innerHTML = `
-      <article class="keyframe-card empty">Setup</article>
-      <article class="keyframe-card empty">Toss</article>
-      <article class="keyframe-card empty">Load</article>
-      <article class="keyframe-card empty">Racket Drop</article>
-      <article class="keyframe-card empty">Acceleration</article>
-      <article class="keyframe-card empty">Contact</article>
-      <article class="keyframe-card empty">Deceleration</article>
-      <article class="keyframe-card empty">Finish</article>
-    `;
+    dom.keyframeGrid.innerHTML = strokeStageTemplate()
+      .map((stage) => `<article class="keyframe-card empty">${stageShortName(stage.name)}</article>`)
+      .join("");
     dom.keyframeStatus.textContent = "Run analysis to generate frames";
     return;
   }
@@ -6305,7 +6500,7 @@ async function detectKeyframes() {
     if (!keyframes.length) throw new Error("No key frames were captured.");
     const defaultAnchorCount = seedDefaultAnchorFramesFromKeyframes();
     renderKeyframes();
-    dom.keyframeStatus.textContent = `${keyframes.length} key frames generated`;
+    dom.keyframeStatus.textContent = keyframeGenerationStatus(latestAnalysis);
     dom.roiStatus.textContent = defaultAnchorCount
       ? `${defaultAnchorCount} default anchor frames are ready. Choose a correction path to continue.`
       : "Key-frame images are ready. Open Frame Corrections to detect or place keypoints on each frame.";
@@ -6319,7 +6514,7 @@ async function detectKeyframes() {
     console.error(error);
     if (keyframes.length) {
       renderKeyframes();
-      dom.keyframeStatus.textContent = `${keyframes.length} key frames generated`;
+      dom.keyframeStatus.textContent = keyframeGenerationStatus(latestAnalysis);
       dom.roiStatus.textContent = "Key frames are ready. The optional tracking step can be run after you choose a correction path.";
       workflowStepOverride = "frames";
       setStatus("Key frames ready", "done");
