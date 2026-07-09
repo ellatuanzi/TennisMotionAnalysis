@@ -484,6 +484,13 @@ const fallbackDiaryEntries = [
   }
 ];
 
+function embeddedDiaryEntries() {
+  const data = window.__TENNIS_DIARY_DATA__;
+  if (Array.isArray(data)) return data;
+  if (Array.isArray(data?.entries)) return data.entries;
+  return [];
+}
+
 
 const dom = {
   authGate: document.querySelector("#authGate"),
@@ -598,6 +605,18 @@ async function loadEntries() {
     }
   } catch {
     // Fall through to built-in recovery data below.
+  }
+  const embeddedEntries = embeddedDiaryEntries();
+  if (embeddedEntries.length) {
+    fileEntryCount = embeddedEntries.length;
+    fileEntryKeys = new Set(embeddedEntries.map((entry) => entry.id || `${entry.date || ""}|${entry.title || ""}|${entry.createdAt || ""}`));
+    const mergedEntries = mergeDiaryEntries(embeddedEntries, savedEntries, { keepSecondaryEntry: hasDiaryMedia });
+    try {
+      localStorage.setItem(storageKey, JSON.stringify(mergedEntries));
+    } catch {
+      // Large image snapshots can exceed storage quota; keep rendering from the embedded data.
+    }
+    return mergedEntries;
   }
   const fallbackEntries = mergeDiaryEntries(savedEntries, fallbackDiaryEntries);
   try {

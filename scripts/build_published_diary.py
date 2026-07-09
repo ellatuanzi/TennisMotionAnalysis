@@ -36,13 +36,24 @@ def release_version() -> str:
 
 def release_html(version: str) -> str:
   html = (ROOT / "training-diary.html").read_text()
-  html = html.replace('<html lang="en">', f'<html lang="en" data-release-version="{version}">')
+  html = re.sub(r'<html lang="en"(?: data-release-version="[^"]+")?>', f'<html lang="en" data-release-version="{version}">', html)
+  html = re.sub(r'<script src="./diary-data\.js(?:\?v=[^"]+)?"></script>', f'<script src="./diary-data.js?v={version}"></script>', html)
   html = html.replace('<link rel="stylesheet" href="./training-diary.css?v=20260707-diary-raw-video" />', f'<link rel="stylesheet" href="./training-diary.css?v={version}" />')
   html = re.sub(r'<link rel="stylesheet" href="./training-diary\.css(?:\?v=[^"]+)?" />', f'<link rel="stylesheet" href="./training-diary.css?v={version}" />', html)
   html = re.sub(r'<script src="./training-diary\.js(?:\?v=[^"]+)?"></script>', f'<script src="./training-diary.js?v={version}"></script>', html)
   html = html.replace('href="./index.html">Motion Analysis</a>', 'href="../index.html">Motion Analysis</a>')
   html = html.replace('href="./index.html">Open Motion Analysis</a>', 'href="../index.html">Open Motion Analysis</a>')
   return html
+
+
+def write_diary_data_js(target: Path) -> None:
+  data = json.loads((ROOT / "diary-data.json").read_text(encoding="utf-8"))
+  target.write_text(
+    "window.__TENNIS_DIARY_DATA__ = "
+    + json.dumps(data, ensure_ascii=False, separators=(",", ":"))
+    + ";\n",
+    encoding="utf-8",
+  )
 
 
 def local_asset_paths_from_entry(entry: dict) -> set[str]:
@@ -82,6 +93,8 @@ def main() -> None:
   copy_file(ROOT / "training-diary.css", OUT / "training-diary.css")
   copy_file(ROOT / "training-diary.js", OUT / "training-diary.js")
   copy_file(ROOT / "diary-data.json", OUT / "diary-data.json")
+  write_diary_data_js(ROOT / "diary-data.js")
+  copy_file(ROOT / "diary-data.js", OUT / "diary-data.js")
   copy_diary_assets()
   (OUT / ".nojekyll").write_text("")
   (OUT / "README.md").write_text(
