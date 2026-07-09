@@ -4,6 +4,10 @@ const authDurationMs = 1000 * 60 * 60 * 24 * 14;
 const passwordHash = "44101bd7e008971009a5c8365210ced92bd3f3d3ded74f20ea70868dae51de69";
 const urlParams = new URLSearchParams(window.location.search);
 const dataFile = urlParams.get("data") || "./diary-data.json";
+let localEntryCount = 0;
+let fileEntryCount = 0;
+let fileEntryKeys = new Set();
+let diaryDataDownloadUrl = null;
 const fallbackDiaryEntries = [
   {
     "id": "analysis-1783552650367",
@@ -494,6 +498,8 @@ const dom = {
   calendarMonth: document.querySelector("#calendarMonth"),
   prevMonthButton: document.querySelector("#prevMonthButton"),
   nextMonthButton: document.querySelector("#nextMonthButton"),
+  diarySyncStatus: document.querySelector("#diarySyncStatus"),
+  downloadDiaryDataButton: document.querySelector("#downloadDiaryDataButton"),
   summaryStrip: document.querySelector("#summaryStrip"),
   diaryList: document.querySelector("#diaryList"),
   template: document.querySelector("#diaryCardTemplate"),
@@ -539,6 +545,8 @@ async function unlockDiary() {
   entries = await loadEntries();
   setCalendarToLatestTrainingMonth();
   syncContentFilterOptions();
+  refreshDiaryDataDownload();
+  renderDiarySyncStatus();
   renderEntries();
 }
 
@@ -564,6 +572,7 @@ async function loadEntries() {
   } catch {
     localStorage.removeItem(storageKey);
   }
+  localEntryCount = savedEntries.length;
 
   if (!dataFile) return savedEntries.map(normalizeDiaryEntry);
 
@@ -572,6 +581,8 @@ async function loadEntries() {
     if (response.ok) {
       const data = await response.json();
       const importedEntries = Array.isArray(data) ? data : Array.isArray(data.entries) ? data.entries : [];
+      fileEntryCount = importedEntries.length;
+      fileEntryKeys = new Set(importedEntries.map((entry) => entry.id || `${entry.date || ""}|${entry.title || ""}|${entry.createdAt || ""}`));
       const mergedEntries = mergeDiaryEntries(savedEntries, importedEntries);
       try {
         if (mergedEntries.length > savedEntries.length) {
@@ -598,6 +609,9 @@ async function loadEntries() {
 
 function saveEntries() {
   localStorage.setItem(storageKey, JSON.stringify(entries));
+  localEntryCount = entries.length;
+  refreshDiaryDataDownload();
+  renderDiarySyncStatus();
 }
 
 function mergeDiaryEntries(primaryEntries, importedEntries) {
@@ -704,6 +718,32 @@ function normalizeDiaryEntry(entry) {
   entry.sessionName = entrySessionName(entry);
   if (!entry.videoName) entry.videoName = entry.sessionName;
   return entry;
+}
+
+function refreshDiaryDataDownload() {
+  if (!dom.downloadDiaryDataButton) return;
+  if (diaryDataDownloadUrl) URL.revokeObjectURL(diaryDataDownloadUrl);
+  const payload = {
+    entries,
+    exportedAt: new Date().toISOString(),
+  };
+  diaryDataDownloadUrl = URL.createObjectURL(new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" }));
+  dom.downloadDiaryDataButton.href = diaryDataDownloadUrl;
+}
+
+function renderDiarySyncStatus() {
+  if (!dom.diarySyncStatus) return;
+  const localOnlyCount = entries.filter((entry) => {
+    const key = entry.id || `${entry.date || ""}|${entry.title || ""}|${entry.createdAt || ""}`;
+    return !fileEntryKeys.has(key);
+  }).length;
+  dom.diarySyncStatus.classList.toggle("needs-sync", localOnlyCount > 0);
+  dom.diarySyncStatus.classList.toggle("is-synced", localOnlyCount === 0);
+  if (localOnlyCount > 0) {
+    dom.diarySyncStatus.textContent = `${localOnlyCount} local entr${localOnlyCount === 1 ? "y is" : "ies are"} not in diary-data.json yet. Download the current file before publishing.`;
+    return;
+  }
+  dom.diarySyncStatus.textContent = `Synced: ${entries.length} entr${entries.length === 1 ? "y" : "ies"} loaded from diary-data.json.`;
 }
 
 function escapeText(value) {

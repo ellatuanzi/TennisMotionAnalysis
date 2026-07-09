@@ -37,6 +37,20 @@ After the local diary is confirmed in the browser, build the static published di
 python3 scripts/build_published_diary.py
 ```
 
+Before publishing, run the release check:
+
+```bash
+python3 scripts/check_diary_release.py
+```
+
+To build, check, commit, push `main`, and update the GitHub Pages diary in one workflow:
+
+```bash
+python3 scripts/publish_diary.py --message "Publish diary update"
+```
+
+If Motion Analysis shows "Save diary-data.json for publishing" after export, download that file and replace the root `diary-data.json` before running the publish script. The diary page also shows whether browser-local entries are missing from `diary-data.json`.
+
 The script writes the confirmed release to:
 
 ```text

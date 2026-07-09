@@ -399,6 +399,29 @@ textarea {
   line-height: 1.55;
 }
 
+.diary-sync-status {
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #f8faf8;
+  color: #40504a;
+  font-size: 14px;
+  font-weight: 850;
+  line-height: 1.45;
+}
+
+.diary-sync-status.needs-sync {
+  border-color: rgba(190, 80, 48, 0.36);
+  background: #fff0e9;
+  color: var(--clay);
+}
+
+.diary-sync-status.is-synced {
+  border-color: rgba(20, 122, 85, 0.24);
+  background: var(--mint);
+  color: var(--green);
+}
+
 .source-link-button {
   display: inline-flex;
   align-items: center;

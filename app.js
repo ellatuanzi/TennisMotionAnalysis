@@ -5327,6 +5327,34 @@ function writeDiaryEntries(entries) {
   localStorage.setItem(diaryStorageKey, JSON.stringify(entries));
 }
 
+async function readDiaryFileEntries() {
+  try {
+    const response = await fetch("./diary-data.json", { cache: "no-store" });
+    if (!response.ok) return [];
+    const data = await response.json();
+    return Array.isArray(data) ? data : Array.isArray(data.entries) ? data.entries : [];
+  } catch {
+    return [];
+  }
+}
+
+function diaryEntryKey(entry) {
+  return entry?.id || `${entry?.date || ""}|${entry?.sessionName || entry?.videoName || ""}|${entry?.createdAt || ""}`;
+}
+
+function mergeDiaryEntries(primaryEntries, importedEntries) {
+  const merged = [];
+  const seen = new Set();
+  [...primaryEntries, ...importedEntries].forEach((entry) => {
+    if (!entry || typeof entry !== "object") return;
+    const key = diaryEntryKey(entry);
+    if (seen.has(key)) return;
+    seen.add(key);
+    merged.push(entry);
+  });
+  return merged;
+}
+
 function createDiaryDataDownload(entries) {
   if (diaryDataDownloadUrl) URL.revokeObjectURL(diaryDataDownloadUrl);
   const payload = {
@@ -5427,25 +5455,27 @@ function analysisDiaryEntry(options = {}) {
   };
 }
 
-function exportAnalysisToDiary() {
+async function exportAnalysisToDiary() {
   if (!latestAnalysis || !motionAnalysisReady) {
     if (dom.diaryExportStatus) dom.diaryExportStatus.textContent = "Run motion analysis before exporting to diary.";
     return;
   }
+  if (dom.diaryExportStatus) dom.diaryExportStatus.textContent = "Exporting diary entry...";
   const entries = readDiaryEntries();
+  const fileEntries = await readDiaryFileEntries();
   let entry = analysisDiaryEntry({ includeImages: true });
-  let nextEntries = [entry, ...entries].slice(0, 30);
+  let nextEntries = mergeDiaryEntries([entry, ...entries], fileEntries).slice(0, 30);
   try {
     writeDiaryEntries(nextEntries);
   } catch (error) {
     console.warn("Diary export with images failed; retrying without images.", error);
     entry = analysisDiaryEntry({ includeImages: false });
-    nextEntries = [entry, ...entries].slice(0, 30);
+    nextEntries = mergeDiaryEntries([entry, ...entries], fileEntries).slice(0, 30);
     writeDiaryEntries(nextEntries);
   }
   if (dom.diaryExportStatus) {
     const downloadUrl = createDiaryDataDownload(nextEntries);
-    dom.diaryExportStatus.innerHTML = `Exported to diary. <a href="./training-diary.html">Open diary</a> · <a href="${downloadUrl}" download="diary-data.json">Download diary-data.json</a>`;
+    dom.diaryExportStatus.innerHTML = `Exported to local diary. <a href="./training-diary.html">Open diary</a> · <a href="${downloadUrl}" download="diary-data.json">Save diary-data.json for publishing</a>`;
   }
 }
 
