@@ -1084,6 +1084,59 @@ function appendKeyframeDetail(container, frame) {
   container.append(detail);
 }
 
+function keyframeViewerTitle(frame, index) {
+  const time = frame.time ? `${frame.time} · ` : "";
+  return `${time}${frame.phase || `Key Frame ${index + 1}`}`;
+}
+
+function ensureKeyframeViewer() {
+  let viewer = document.querySelector("#keyframeViewer");
+  if (viewer) return viewer;
+  viewer = document.createElement("div");
+  viewer.id = "keyframeViewer";
+  viewer.className = "keyframe-viewer";
+  viewer.hidden = true;
+  viewer.innerHTML = `
+    <div class="keyframe-viewer-panel" role="dialog" aria-modal="true" aria-labelledby="keyframeViewerTitle">
+      <button class="keyframe-viewer-close" type="button" aria-label="Close image preview">&times;</button>
+      <img class="keyframe-viewer-image" alt="" />
+      <div class="keyframe-viewer-caption">
+        <strong id="keyframeViewerTitle"></strong>
+        <span></span>
+      </div>
+    </div>
+  `;
+  viewer.addEventListener("click", (event) => {
+    if (event.target === viewer || event.target.closest(".keyframe-viewer-close")) {
+      closeKeyframeViewer();
+    }
+  });
+  document.body.append(viewer);
+  return viewer;
+}
+
+function openKeyframeViewer(frame, index) {
+  const viewer = ensureKeyframeViewer();
+  const image = viewer.querySelector(".keyframe-viewer-image");
+  const title = viewer.querySelector("#keyframeViewerTitle");
+  const caption = viewer.querySelector(".keyframe-viewer-caption span");
+  const titleText = keyframeViewerTitle(frame, index);
+  image.src = frame.image;
+  image.alt = `${titleText} large keyframe`;
+  title.textContent = titleText;
+  caption.textContent = frame.points || "Key point detection frame";
+  viewer.hidden = false;
+  document.body.classList.add("keyframe-viewer-open");
+  viewer.querySelector(".keyframe-viewer-close").focus();
+}
+
+function closeKeyframeViewer() {
+  const viewer = document.querySelector("#keyframeViewer");
+  if (!viewer || viewer.hidden) return;
+  viewer.hidden = true;
+  document.body.classList.remove("keyframe-viewer-open");
+}
+
 function renderKeyframes(container, entry) {
   const frames = normalizeKeyframes(entry.keyframes);
   container.innerHTML = "";
@@ -1099,10 +1152,16 @@ function renderKeyframes(container, entry) {
     const status = keyframeStatus(frame);
     node.className = `keyframe-card ${status}`;
     if (frame.image) {
+      const imageButton = document.createElement("button");
+      imageButton.type = "button";
+      imageButton.className = "keyframe-image-button";
+      imageButton.setAttribute("aria-label", `Open ${keyframeViewerTitle(frame, index)} large image`);
       const image = document.createElement("img");
       image.src = frame.image;
       image.alt = `${frame.phase || "Key point"} frame`;
-      node.append(image);
+      imageButton.append(image);
+      imageButton.addEventListener("click", () => openKeyframeViewer(frame, index));
+      node.append(imageButton);
     }
     const label = document.createElement("div");
     label.className = "keyframe-meta";
@@ -1234,6 +1293,12 @@ dom.nextMonthButton.addEventListener("click", () => {
 
 dom.authForm.addEventListener("submit", handleAuthSubmit);
 dom.lockDiaryButton.addEventListener("click", lockDiary);
+
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") {
+    closeKeyframeViewer();
+  }
+});
 
 if (isAuthorized()) {
   unlockDiary();
