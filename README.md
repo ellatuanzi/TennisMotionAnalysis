@@ -22,6 +22,29 @@ Racket annotation tool:
 http://localhost:5173/racket_annotator/
 ```
 
+## Diary Release Workflow
+
+Use the root diary files for local iteration:
+
+- `training-diary.html`
+- `training-diary.css`
+- `training-diary.js`
+- `diary-data.json`
+
+After the local diary is confirmed in the browser, build the static published diary:
+
+```bash
+python3 scripts/build_published_diary.py
+```
+
+The script writes the confirmed release to:
+
+```text
+published-diary/index.html
+```
+
+The published diary is static, uses its own copied `diary-data.json`, and keeps the password gate from the local diary. Do not edit files inside `published-diary/` by hand; update the local diary first, confirm it, then rebuild the published diary.
+
 ## Model Integration Plan
 
 The current `createPose()` and `analyzeMotion()` functions in `app.js` are replaceable front-end simulation layers. A production version can use these API boundaries:
