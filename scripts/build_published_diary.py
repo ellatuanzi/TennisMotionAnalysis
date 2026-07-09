@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import re
 import shutil
+import hashlib
 from pathlib import Path
 
 
@@ -26,11 +27,19 @@ def copy_file(source: Path, target: Path) -> None:
   shutil.copy2(source, target)
 
 
-def release_html() -> str:
+def release_version() -> str:
+  digest = hashlib.sha256()
+  for name in ["training-diary.css", "training-diary.js", "diary-data.json"]:
+    digest.update((ROOT / name).read_bytes())
+  return digest.hexdigest()[:12]
+
+
+def release_html(version: str) -> str:
   html = (ROOT / "training-diary.html").read_text()
-  html = html.replace('<link rel="stylesheet" href="./training-diary.css?v=20260707-diary-raw-video" />', '<link rel="stylesheet" href="./training-diary.css" />')
-  html = re.sub(r'<link rel="stylesheet" href="./training-diary\.css\?v=[^"]+" />', '<link rel="stylesheet" href="./training-diary.css" />', html)
-  html = re.sub(r'<script src="./training-diary\.js\?v=[^"]+"></script>', '<script src="./training-diary.js"></script>', html)
+  html = html.replace('<html lang="en">', f'<html lang="en" data-release-version="{version}">')
+  html = html.replace('<link rel="stylesheet" href="./training-diary.css?v=20260707-diary-raw-video" />', f'<link rel="stylesheet" href="./training-diary.css?v={version}" />')
+  html = re.sub(r'<link rel="stylesheet" href="./training-diary\.css(?:\?v=[^"]+)?" />', f'<link rel="stylesheet" href="./training-diary.css?v={version}" />', html)
+  html = re.sub(r'<script src="./training-diary\.js(?:\?v=[^"]+)?"></script>', f'<script src="./training-diary.js?v={version}"></script>', html)
   html = html.replace('href="./index.html">Motion Analysis</a>', 'href="../index.html">Motion Analysis</a>')
   html = html.replace('href="./index.html">Open Motion Analysis</a>', 'href="../index.html">Open Motion Analysis</a>')
   return html
@@ -68,7 +77,8 @@ def copy_diary_assets() -> None:
 
 def main() -> None:
   OUT.mkdir(parents=True, exist_ok=True)
-  (OUT / "index.html").write_text(release_html())
+  version = release_version()
+  (OUT / "index.html").write_text(release_html(version))
   copy_file(ROOT / "training-diary.css", OUT / "training-diary.css")
   copy_file(ROOT / "training-diary.js", OUT / "training-diary.js")
   copy_file(ROOT / "diary-data.json", OUT / "diary-data.json")
