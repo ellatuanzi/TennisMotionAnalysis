@@ -40,6 +40,23 @@ def validate_entries(entries: list[dict], label: str) -> list[str]:
         errors.append(f"{label}: entry {index} is missing {field}")
     if not isinstance(entry.get("keyframes"), list) or not entry.get("keyframes"):
       errors.append(f"{label}: entry {index} has no keyframes")
+    if not entry.get("videoUrl") and not entry.get("rawVideoUrl") and not entry.get("previewVideoUrl"):
+      errors.append(f"{label}: entry {index} has no video URL")
+    for frame_index, frame in enumerate(entry.get("keyframes") or [], start=1):
+      if not frame.get("image"):
+        errors.append(f"{label}: entry {index} frame {frame_index} has no keyframe image")
+      for field in ["image", "rawFrame"]:
+        value = frame.get(field)
+        if isinstance(value, str) and (value.startswith("./") or value.startswith("assets/") or value.startswith("exports/")):
+          relative = value.removeprefix("./")
+          if not (ROOT / relative).exists():
+            errors.append(f"{label}: entry {index} frame {frame_index} missing asset {relative}")
+    for field in ["videoUrl", "rawVideoUrl", "previewVideoUrl"]:
+      value = entry.get(field)
+      if isinstance(value, str) and (value.startswith("./") or value.startswith("assets/")):
+        relative = value.removeprefix("./")
+        if not (ROOT / relative).exists():
+          errors.append(f"{label}: entry {index} missing video asset {relative}")
   return errors
 
 
