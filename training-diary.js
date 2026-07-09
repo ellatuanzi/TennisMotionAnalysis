@@ -806,10 +806,17 @@ function optionElement(value, label) {
   return option;
 }
 
+function contentValuesForDate(date = "") {
+  return [...new Set(
+    entries
+      .filter((entry) => !date || entry.date === date)
+      .map(entryContent),
+  )].sort((a, b) => contentLabel(a).localeCompare(contentLabel(b)));
+}
+
 function syncContentFilterOptions() {
   const current = dom.strokeFilter.value || "all";
-  const builtIn = ["serve", "forehand", "backhand", "volley", "footwork"];
-  const values = [...new Set([...builtIn, ...entries.map(entryContent)])];
+  const values = contentValuesForDate(dom.dateFilter.value);
   dom.strokeFilter.innerHTML = "";
   dom.strokeFilter.append(optionElement("all", "All"));
   values.forEach((value) => dom.strokeFilter.append(optionElement(value, contentLabel(value))));
@@ -848,27 +855,48 @@ function syncVideoFilterOptions() {
   dom.videoFilter.value = current === "all" || seen.has(current) ? current : "all";
 }
 
-function copySelectOptions(target, source, selectedValue) {
+function populateEntryContentSelect(target, entry) {
+  const values = contentValuesForDate(entry.date);
   target.innerHTML = "";
-  Array.from(source.options).forEach((option) => {
-    target.append(option.cloneNode(true));
+  values.forEach((value) => target.append(optionElement(value, contentLabel(value))));
+  target.value = values.includes(entryContent(entry)) ? entryContent(entry) : values[0] || "";
+}
+
+function populateEntryVideoSelect(target, entry, content = entryContent(entry)) {
+  const seen = new Set();
+  const options = entries
+    .filter((item) => item.date === entry.date)
+    .filter((item) => entryContent(item) === content)
+    .sort((a, b) => String(b.createdAt || b.date).localeCompare(String(a.createdAt || a.date)));
+  target.innerHTML = "";
+  options.forEach((item) => {
+    const name = entrySessionName(item);
+    if (seen.has(name)) return;
+    seen.add(name);
+    target.append(optionElement(name, name));
   });
-  target.value = selectedValue;
-  if (target.value !== selectedValue) target.value = "all";
+  const currentName = entrySessionName(entry);
+  target.value = seen.has(currentName) ? currentName : target.options[0]?.value || "";
 }
 
 function bindEntrySelectors(card, entry) {
   const strokeSelect = card.querySelector(".entry-stroke-filter");
   const videoSelect = card.querySelector(".entry-video-filter");
-  copySelectOptions(strokeSelect, dom.strokeFilter, dom.strokeFilter.value === "all" ? entryContent(entry) : dom.strokeFilter.value);
-  copySelectOptions(videoSelect, dom.videoFilter, dom.videoFilter.value === "all" ? entrySessionName(entry) : dom.videoFilter.value);
+  populateEntryContentSelect(strokeSelect, entry);
+  populateEntryVideoSelect(videoSelect, entry, strokeSelect.value || entryContent(entry));
 
   strokeSelect.addEventListener("change", () => {
+    dom.dateFilter.value = entry.date || dom.dateFilter.value;
+    syncContentFilterOptions();
     dom.strokeFilter.value = strokeSelect.value;
     dom.videoFilter.value = "all";
+    populateEntryVideoSelect(videoSelect, entry, strokeSelect.value);
     renderEntries();
   });
   videoSelect.addEventListener("change", () => {
+    dom.dateFilter.value = entry.date || dom.dateFilter.value;
+    syncContentFilterOptions();
+    dom.strokeFilter.value = strokeSelect.value || entryContent(entry);
     dom.videoFilter.value = videoSelect.value;
     renderEntries();
   });
@@ -1034,6 +1062,7 @@ function renderKeyframes(container, entry) {
 }
 
 function renderEntries() {
+  syncContentFilterOptions();
   syncVideoFilterOptions();
   const list = filteredEntries();
   renderSummary(list);
