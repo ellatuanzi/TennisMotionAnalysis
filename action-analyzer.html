@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>网球动作拆分与评分</title>
+    <link rel="stylesheet" href="./action-analyzer.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Tennis Motion Lab</p>
+          <h1>动作拆分与 Gemini 评分</h1>
+          <p class="lede">上传一段训练视频，自动识别每次击球、编号、评分并生成独立小视频。</p>
+        </div>
+        <nav><a href="./index.html">返回 Motion Analysis</a><a href="./training-diary.html">Training Diary</a></nav>
+      </header>
+
+      <section class="upload-card">
+        <label class="drop-zone" for="videoInput">
+          <input id="videoInput" type="file" accept="video/*,.mov,.mp4,.m4v,.webm" />
+          <span class="upload-mark">↥</span>
+          <strong>选择长视频</strong>
+          <small id="fileLabel">支持 MOV、MP4、WebM 等常见格式</small>
+        </label>
+        <video id="sourcePreview" controls playsinline></video>
+        <div class="options">
+          <label>选手惯用手<select id="dominantHand"><option value="unknown">不确定</option><option value="right">右手</option><option value="left">左手</option></select></label>
+          <label>切片前缓冲（秒）<input id="preRoll" type="number" min="0" max="3" step="0.1" value="0.8" /></label>
+          <label>切片后缓冲（秒）<input id="postRoll" type="number" min="0" max="4" step="0.1" value="1.2" /></label>
+        </div>
+        <button id="analyzeButton" class="primary" type="button" disabled>识别、评分并拆分视频</button>
+        <p id="status" class="status">请选择一个视频开始。</p>
+        <div class="progress"><i id="progressBar"></i></div>
+      </section>
+
+      <section id="summary" class="summary hidden"></section>
+      <section id="results" class="results" aria-live="polite"></section>
+    </main>
+
+    <template id="actionTemplate">
+      <article class="action-card">
+        <div class="card-head">
+          <div><span class="number"></span><span class="type"></span><span class="time"></span></div>
+          <strong class="score"></strong>
+        </div>
+        <div class="card-body">
+          <video class="clip" controls playsinline preload="metadata"></video>
+          <div class="analysis">
+            <h2 class="title"></h2>
+            <p class="highlight"></p>
+            <div class="score-grid"></div>
+            <h3>做得好的地方</h3><ul class="strengths"></ul>
+            <h3>下一步改进</h3><ul class="improvements"></ul>
+            <label>起点（秒）<input class="start-edit" type="number" min="0" step="0.1" /></label>
+            <label>终点（秒）<input class="end-edit" type="number" min="0" step="0.1" /></label>
+            <button class="secondary recut" type="button">按新时间重新切分</button>
+            <a class="download" download>下载这个动作</a>
+            <button class="secondary reveal" type="button">在 Finder 中显示</button>
+          </div>
+        </div>
+      </article>
+    </template>
+    <script src="./action-analyzer.js"></script>
+  </body>
+</html>
