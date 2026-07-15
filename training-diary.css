@@ -965,6 +965,16 @@ body.keyframe-viewer-open {
   background: #fbfdfb;
 }
 
+.analysis-grid .priority-advice-card {
+  border-left-color: var(--clay);
+  background: #fff9f6;
+}
+
+.analysis-grid .method-advice-card {
+  border-left-color: var(--green);
+  background: #f3fbf6;
+}
+
 .analysis-grid h3 {
   color: var(--ink);
   font-size: 20px;
