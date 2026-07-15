@@ -16,6 +16,18 @@ Then open:
 http://localhost:5173
 ```
 
+## Action Split & Gemini Score
+
+The separate action tool identifies every forehand, backhand, serve, volley, and other stroke in a long video, numbers and scores each action, generates coaching highlights, and exports one MP4 per action.
+
+```bash
+export GEMINI_API_KEY="your-key"
+export GOOGLE_DRIVE_ACCESS_TOKEN="your-current-oauth-token"
+python3 scripts/action_analyzer_server.py --port 5175
+```
+
+Open `http://localhost:5175/action-analyzer.html`. Video uploads and generated clips stay in the ignored local `action_jobs/` folder. When `GOOGLE_DRIVE_ACCESS_TOKEN` is present, clips are uploaded under Drive folder `1kuslAgGdTWLMwjM0fADdR9m6F_kbXOC9`, grouped by the source video's recorded date in `MMDDYYYY` format; a missing date folder is created automatically. Set `GEMINI_MODEL`, `GOOGLE_DRIVE_ROOT_FOLDER_ID`, or `FFMPEG_PATH` to override defaults.
+
 Racket annotation tool:
 
 ```text

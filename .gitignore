@@ -21,3 +21,6 @@ model_pipeline/runs/
 
 # Temporary or exported ad hoc artifacts
 *.log
+
+# Uploaded source videos and generated action clips
+action_jobs/

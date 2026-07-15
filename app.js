@@ -475,6 +475,7 @@ const poseRuntime = {
   editorFrame: null,
   editMode: false,
   draggingPoint: null,
+  pendingInputGeometry: null,
 };
 
 const roiRuntime = {
@@ -1217,7 +1218,7 @@ async function initPoseDetector() {
       minTrackingConfidence: 0.45,
     });
     poseRuntime.detector.onResults((results) => {
-      const detectedPose = normalizeMediaPipePose(results.poseLandmarks || []);
+      const detectedPose = normalizeMediaPipePose(results.poseLandmarks || [], poseRuntime.pendingInputGeometry);
       poseRuntime.lastDetectedPose = detectedPose;
       poseRuntime.trackedPose = smoothPose(poseRuntime.trackedPose, detectedPose);
       poseRuntime.childPose = poseRuntime.trackedPose;
@@ -1230,11 +1231,21 @@ async function initPoseDetector() {
   }
 }
 
-function normalizeMediaPipePose(landmarks) {
+function posePointToSource(point, geometry) {
+  if (!geometry) return [point.x, point.y];
+  const sourceX = geometry.crop.x + point.x * geometry.crop.width;
+  const sourceY = geometry.crop.y + point.y * geometry.crop.height;
+  return [
+    clamp(sourceX / Math.max(1, geometry.videoWidth), 0, 1),
+    clamp(sourceY / Math.max(1, geometry.videoHeight), 0, 1),
+  ];
+}
+
+function normalizeMediaPipePose(landmarks, geometry = null) {
   const pick = (index) => {
     const landmark = landmarks[index];
     if (!landmark || landmark.visibility < 0.28) return null;
-    return [landmark.x, landmark.y];
+    return posePointToSource(landmark, geometry);
   };
 
   const pose = {
@@ -1256,6 +1267,34 @@ function normalizeMediaPipePose(landmarks) {
   return Object.fromEntries(Object.entries(pose).filter(([, value]) => Boolean(value)));
 }
 
+function preparePoseModelInput(video) {
+  if (!video?.videoWidth || !video?.videoHeight || !roiRuntime.confirmed) {
+    return { image: video, geometry: null };
+  }
+  const crop = getPlayerCropSource(video);
+  const maxSide = 720;
+  const ratio = crop.width / Math.max(1, crop.height);
+  const canvas = preparePoseModelInput.canvas || (preparePoseModelInput.canvas = document.createElement("canvas"));
+  if (ratio >= 1) {
+    canvas.width = maxSide;
+    canvas.height = Math.max(256, Math.round(maxSide / ratio));
+  } else {
+    canvas.height = maxSide;
+    canvas.width = Math.max(256, Math.round(maxSide * ratio));
+  }
+  const context = canvas.getContext("2d");
+  context.clearRect(0, 0, canvas.width, canvas.height);
+  context.drawImage(video, crop.x, crop.y, crop.width, crop.height, 0, 0, canvas.width, canvas.height);
+  return {
+    image: canvas,
+    geometry: {
+      crop,
+      videoWidth: video.videoWidth,
+      videoHeight: video.videoHeight,
+    },
+  };
+}
+
 async function detectChildPose(video, options = {}) {
   if (!poseRuntime.ready || poseRuntime.busy || video.readyState < 2) return;
 
@@ -1265,12 +1304,15 @@ async function detectChildPose(video, options = {}) {
   poseRuntime.busy = true;
   poseRuntime.lastRun = now;
   try {
-    await withTimeout(poseRuntime.detector.send({ image: video }), options.timeoutMs || 900);
+    const input = preparePoseModelInput(video);
+    poseRuntime.pendingInputGeometry = input.geometry;
+    await withTimeout(poseRuntime.detector.send({ image: input.image }), options.timeoutMs || 900);
   } catch {
     poseRuntime.failed = true;
     dom.childPoseScore.textContent = "CV unavailable";
   } finally {
     poseRuntime.busy = false;
+    poseRuntime.pendingInputGeometry = null;
   }
   if (!poseRuntime.failed && !options.skipObjects) {
     if (options.force && !options.skipObjects) {
@@ -5737,6 +5779,16 @@ function analysisDiaryEntry(options = {}) {
   const lowestStage = stages.reduce((weakest, item) => (item.score < weakest.score ? item : weakest), stages[0]);
   const keyframeEntries = stages.map((stage, index) => {
     const representativeFrame = keyframeForStage(stage);
+    const representativeIndex = representativeFrame ? keyframes.indexOf(representativeFrame) : index;
+    const frameIndex = representativeFrame
+      ? clampFrameIndex(keyframeToFrameIndex(representativeFrame), dom.childVideo)
+      : null;
+    const editedFrame = editedAnchorFrameForStage(stage, representativeFrame);
+    const exportedFrameIndex = Number.isFinite(editedFrame) ? editedFrame : frameIndex;
+    const exportedPose = Number.isFinite(exportedFrameIndex)
+      ? correctionForFrameIndex(exportedFrameIndex)
+        || (representativeFrame?.pose ? clonePose(representativeFrame.pose) : null)
+      : null;
     const detections = (stage.metrics || []).map((metric) => ({
       label: metric.label,
       value: String(metric.value),
@@ -5746,7 +5798,11 @@ function analysisDiaryEntry(options = {}) {
     const stageEvidence = String(stage.evidence || "").trim();
     const notePrefix = /^Coach note:/i.test(stageEvidence) ? stageEvidence : `Evidence: ${stageEvidence}`;
     return {
-      time: representativeFrame ? keyframeTimeLabel(keyframes.indexOf(representativeFrame)) : keyframeTimeLabel(index),
+      time: representativeFrame ? keyframeTimeLabel(representativeIndex) : keyframeTimeLabel(index),
+      timeSeconds: Number.isFinite(exportedFrameIndex)
+        ? exportedFrameIndex / Math.max(1, Number(dom.fpsInput?.value || 60))
+        : null,
+      frameIndex: Number.isFinite(exportedFrameIndex) ? exportedFrameIndex : null,
       phase: stageShortName(stage.name),
       score: stage.score,
       status: stage.score >= 80 ? "good" : "issue",
@@ -5754,11 +5810,16 @@ function analysisDiaryEntry(options = {}) {
       aiNote: `${notePrefix}. Coach cue: ${stage.coachComment}`,
       detections,
       image: options.includeImages === false ? null : stage.image,
+      pose: exportedPose ? clonePose(exportedPose) : null,
+      poseSource: Number.isFinite(editedFrame)
+        ? poseCorrectionSources.get(editedFrame) || "userAnchor"
+        : representativeFrame?.poseSource || "detected",
     };
   });
   return {
     id: `analysis-${Date.now()}`,
     source: "motion-analysis",
+    exportSchemaVersion: 2,
     createdAt: createdDate.toISOString(),
     date: diaryEntryDate(),
     title: `${sessionName} · ${strokeText} analysis`,
@@ -5797,21 +5858,27 @@ async function exportAnalysisToDiary() {
     return;
   }
   if (dom.diaryExportStatus) dom.diaryExportStatus.textContent = "Exporting diary entry...";
+  // Re-capture each stage at export time so the ZIP contains the latest manual
+  // keypoint edits even when an earlier analysis image cache is stale.
+  await refreshAnalysisStageImages();
   const entries = readDiaryEntries();
   const fileEntries = await readDiaryFileEntries();
-  let entry = analysisDiaryEntry({ includeImages: true });
-  let nextEntries = mergeDiaryEntries([entry, ...entries], fileEntries).slice(0, 30);
+  const packageEntry = analysisDiaryEntry({ includeImages: true });
+  let localEntry = packageEntry;
+  let nextEntries = mergeDiaryEntries([localEntry, ...entries], fileEntries).slice(0, 30);
   try {
     writeDiaryEntries(nextEntries);
   } catch (error) {
     console.warn("Diary export with images failed; retrying without images.", error);
-    entry = analysisDiaryEntry({ includeImages: false });
-    nextEntries = mergeDiaryEntries([entry, ...entries], fileEntries).slice(0, 30);
+    // Browser storage can reject large data URLs. Keep coordinates locally and
+    // retain the full images in packageEntry for the downloadable ZIP.
+    localEntry = analysisDiaryEntry({ includeImages: false });
+    nextEntries = mergeDiaryEntries([localEntry, ...entries], fileEntries).slice(0, 30);
     writeDiaryEntries(nextEntries);
   }
   if (dom.diaryExportStatus) {
     const downloadUrl = createDiaryDataDownload(nextEntries);
-    const packageDownload = await createDiaryPackageDownload(entry, nextEntries);
+    const packageDownload = await createDiaryPackageDownload(packageEntry, nextEntries);
     dom.diaryExportStatus.innerHTML = `Exported to local diary. <a href="./training-diary.html">Open diary</a> · <a href="${packageDownload.url}" download="${packageDownload.fileName}">Download diary package</a> · <a href="${downloadUrl}" download="diary-data.json">JSON only</a> · ${packageDownload.mediaCount} media file${packageDownload.mediaCount === 1 ? "" : "s"} included`;
   }
 }
@@ -6470,10 +6537,8 @@ function saveTrainingSample() {
 
 function snapshotDetectedPoseForKeyframe(frameIndex) {
   const detectedPose = poseRuntime.childPose || poseRuntime.lastDetectedPose;
-  const pose = detectedPose && Object.keys(detectedPose).length >= 4
-    ? detectedPose
-    : baselinePoseForFrame(frameIndex);
-  return addTrackedObjects(clonePose(pose));
+  if (!detectedPose || bodyKeypointCount(detectedPose) < 7) return null;
+  return addTrackedObjects(clonePose(detectedPose));
 }
 
 async function fallbackKeyframeCardsForStages(frames) {
@@ -6718,8 +6783,13 @@ async function generateKeyframes(data) {
       await waitForPoseIdle();
       await detectChildPose(video, { force: true, skipObjects: true, timeoutMs: 700 }).catch(() => {});
       await nextPaint();
-      const pose = snapshotDetectedPoseForKeyframe(frameIndex);
-      const image = captureAnalysisFrame(pose) || fallbackStageSnapshotForStage({ phase: frame.phase });
+      const detectedPose = snapshotDetectedPoseForKeyframe(frameIndex);
+      const pose = detectedPose || baselinePoseForFrame(frameIndex);
+      // Never paint the synthetic baseline pose over a real frame. It is only
+      // an editor starting point and has no visual-detection confidence.
+      const image = detectedPose
+        ? captureAnalysisFrame(detectedPose)
+        : captureRawKeyframeImage() || fallbackRawStageSnapshotForStage({ phase: frame.phase });
       // Keep a frozen pose + image for this stage. Do not let later playback,
       // smoothing, or editor state redraw every card from the same current frame.
       cards.push({
@@ -6728,6 +6798,7 @@ async function generateKeyframes(data) {
         frameIndex,
         image,
         pose,
+        poseSource: detectedPose ? "mediaPipe" : "fallbackTemplate",
       });
     }
     const uniqueFrames = new Set(cards.map((card) => card.frameIndex));
@@ -6777,15 +6848,16 @@ function renderKeyframes() {
         const frameIndex = keyframeToFrameIndex(frame);
         const source = poseCorrectionSources.get(frameIndex) || "defaultAnchor";
         const quality = trackingQualityForFrame(frameIndex);
+        const needsCorrection = frame.poseSource === "fallbackTemplate";
         return `
-        <article class="keyframe-card ${index === selectedKeyframeIndex ? "selected" : ""} ${anchorTypeClass(source)}" data-index="${index}">
+        <article class="keyframe-card ${index === selectedKeyframeIndex ? "selected" : ""} ${needsCorrection ? "anchor-suggested" : anchorTypeClass(source)}" data-index="${index}">
           <img src="${frame.image}" alt="${frame.phase} key frame" data-expand="${index}" />
           <div class="keyframe-body">
             <div class="keyframe-title-row">
               <strong>${frame.phase}</strong>
-              <span class="anchor-badge ${anchorTypeClass(source)}">${anchorTypeLabel(source)}</span>
+              <span class="anchor-badge ${needsCorrection ? "anchor-suggested" : anchorTypeClass(source)}">${needsCorrection ? "Needs correction" : anchorTypeLabel(source)}</span>
             </div>
-            <span class="keyframe-meta">${frame.time.toFixed(2)}s · quality ${quality.score}</span>
+            <span class="keyframe-meta">${frame.time.toFixed(2)}s · ${needsCorrection ? "CV pose unavailable" : `quality ${quality.score}`}</span>
             <p>${frame.note}</p>
           </div>
         </article>
