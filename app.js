@@ -5840,6 +5840,12 @@ function analysisDiaryEntry(options = {}) {
     coachAi: stages.map((stage) => (
       `${stageShortName(stage.name)} (${stage.quality}, ${stage.score}/100): ${stage.score >= 86 ? "Maintain this checkpoint." : stage.next}`
     )).join("\n"),
+    trainingPriority: `Priority 1: ${stageShortName(lowestStage.name)} - ${lowestStage.next}`,
+    trainingMethod: [
+      `Drill 1: Perform 3 sets of 10 shadow swings focused only on ${stageShortName(lowestStage.name).toLowerCase()}.`,
+      `Drill 2: Complete 3 sets of 8 coach-fed or drop-fed balls at 60-70% speed. Cue: ${lowestStage.next}`,
+      "Progression: Record the final set. Increase speed only after at least 6 of 8 repetitions meet the checkpoint.",
+    ].join("\n"),
     comments: [],
     metrics: {
       score: latestAnalysis.score,

@@ -811,6 +811,38 @@ function renderAnalysisText(container, value) {
   });
 }
 
+function weakestKeyframe(entry) {
+  return normalizeKeyframes(entry.keyframes)
+    .filter((frame) => Number.isFinite(Number(frame?.score)))
+    .sort((a, b) => Number(a.score) - Number(b.score))[0] || null;
+}
+
+function focusCueFromFrame(frame) {
+  const points = String(frame?.points || "").trim();
+  const focus = points.match(/Focus:\s*(.+)$/i)?.[1]?.trim();
+  return focus || points || "Build a repeatable movement pattern before adding speed.";
+}
+
+function trainingPriorityAdvice(entry) {
+  if (entry.trainingPriority) return entry.trainingPriority;
+  const weakest = weakestKeyframe(entry);
+  if (weakest) return `Priority 1: ${weakest.phase || "Primary checkpoint"} - ${focusCueFromFrame(weakest)}`;
+  const diagnosisPriority = String(entry.diagnosis || "").split(/\n+/).find((line) => /^Priority:/i.test(line.trim()));
+  return diagnosisPriority || "Priority 1: Improve the least consistent checkpoint before increasing pace or volume.";
+}
+
+function recommendedTrainingMethod(entry) {
+  if (entry.trainingMethod) return entry.trainingMethod;
+  const weakest = weakestKeyframe(entry);
+  const phase = weakest?.phase || "priority movement";
+  const cue = focusCueFromFrame(weakest);
+  return [
+    `Drill 1: Perform 3 sets of 10 shadow swings focused only on ${phase.toLowerCase()}.`,
+    `Drill 2: Complete 3 sets of 8 coach-fed or drop-fed balls at 60-70% speed. Cue: ${cue}`,
+    "Progression: Record the final set. Increase speed only after at least 6 of 8 repetitions meet the checkpoint.",
+  ].join("\n");
+}
+
 function parseKeyframes(value) {
   const lines = value
     .split("\n")
@@ -1282,6 +1314,8 @@ function renderEntries() {
     renderAnalysisText(card.querySelector(".coach-text"), entry.coach);
     renderAnalysisText(card.querySelector(".diagnosis-text"), entry.diagnosis);
     renderAnalysisText(card.querySelector(".coach-ai-text"), entry.coachAi);
+    renderAnalysisText(card.querySelector(".training-priority-text"), trainingPriorityAdvice(entry));
+    renderAnalysisText(card.querySelector(".training-method-text"), recommendedTrainingMethod(entry));
 
     const videoWrap = card.querySelector(".video-link-wrap");
     const previewVideoUrl = entry.previewVideoUrl || entry.videoUrl;
