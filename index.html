@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Junior Tennis Motion Analysis</title>
-    <link rel="stylesheet" href="./styles.css?v=20260707-diary-export" />
+    <link rel="stylesheet" href="./styles.css?v=20260716-realtime-keypoint-render" />
     <script src="./vendor/onnxruntime-web/ort.wasm.min.js?v=20260704-2"></script>
   </head>
   <body>
@@ -36,6 +36,8 @@
           <p id="workflowHint">Upload a player video, or use the default PoC video already loaded, then confirm the player crop.</p>
           <div class="workflow-actions">
             <button class="secondary-action compact ghost" id="loadDraftButton" type="button">Load Draft</button>
+            <button class="secondary-action compact ghost" id="importDraftButton" type="button">Import Draft File</button>
+            <input id="importDraftInput" type="file" accept="application/json,.json" hidden />
             <button class="secondary-action compact ghost" id="saveDraftButton" type="button">Save Draft</button>
             <button class="primary-action compact" id="workflowNextButton" type="button">
               <span>▶</span>
@@ -150,7 +152,6 @@
               <button class="secondary-action" id="editKeyframeAnchorsButton" type="button">Edit Key Frames Only</button>
               <button class="secondary-action" id="editKeypointsButton" type="button">Edit Full Video</button>
               <button class="secondary-action" id="exportVideoButton" type="button">Render Review Video</button>
-              <a class="download-link hidden" id="downloadVideoLink" href="#" download="keypoint-analysis.webm">Download rendered video</a>
               <span id="roiStatus">Default PoC video is loaded. Adjust crop if needed, then confirm.</span>
             </div>
             <div class="keypoint-editor" id="keypointEditor">
@@ -351,10 +352,23 @@
               <div class="keyframe-tools">
                 <button type="button" id="detectKeyframesButton">Auto Detect Key Frames</button>
                 <button type="button" id="addKeyframeButton">Add Current Frame</button>
-                <button type="button" id="updateKeyframeButton">Update Selected</button>
+                <button type="button" id="updateKeyframeButton">Replace Selected With Current Frame</button>
                 <button type="button" id="deleteKeyframeButton">Delete Selected</button>
               </div>
               <span id="keyframeStatus">Run analysis to generate frames</span>
+            </div>
+            <p class="keyframe-edit-help" id="keyframeEditHelp">To change a key frame: select its card, move the video to the correct moment, then choose “Replace Selected With Current Frame.”</p>
+            <div class="keyframe-picker" id="keyframePicker">
+              <div class="keyframe-picker-head">
+                <strong>Choose Current Frame</strong>
+                <span id="keyframePickerLabel">0.00s · Frame 0</span>
+              </div>
+              <input id="keyframePickerScrubber" type="range" min="0" max="0" step="0.001" value="0" />
+              <canvas id="keyframePickerCanvas" aria-label="Current key frame preview"></canvas>
+              <div class="keyframe-picker-actions">
+                <button type="button" id="previousKeyframePickerButton">← Previous Frame</button>
+                <button type="button" id="nextKeyframePickerButton">Next Frame →</button>
+              </div>
             </div>
             <div class="correction-choice hidden" id="correctionChoice">
               <div>
@@ -386,6 +400,8 @@
                 <button type="button" id="replayAnnotatedButton">Replay</button>
                 <button type="button" id="pauseAnnotatedButton">Pause</button>
                 <button type="button" id="editReviewFrameButton">Edit current frame</button>
+                <button type="button" id="downloadCorrectionsButton">Download Frame Corrections</button>
+                <a class="download-link disabled" id="downloadVideoLink" aria-disabled="true" download="keypoint-detection.webm">Download Keypoint Video</a>
                 <span id="annotatedVideoStatus">Render video to review detection</span>
               </div>
             </div>
@@ -565,6 +581,6 @@
     </dialog>
 
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
-    <script src="./app.js?v=20260714-diary-keypoints-v2"></script>
+    <script src="./app.js?v=20260716-mobile-mp4"></script>
   </body>
 </html>

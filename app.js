@@ -22,6 +22,8 @@ const dom = {
   workflowNextButton: document.querySelector("#workflowNextButton"),
   saveDraftButton: document.querySelector("#saveDraftButton"),
   loadDraftButton: document.querySelector("#loadDraftButton"),
+  importDraftButton: document.querySelector("#importDraftButton"),
+  importDraftInput: document.querySelector("#importDraftInput"),
   draftStatus: document.querySelector("#draftStatus"),
   analyzeButton: document.querySelector("#analyzeButton"),
   pipelineStatus: document.querySelector("#pipelineStatus"),
@@ -40,6 +42,7 @@ const dom = {
   replayAnnotatedButton: document.querySelector("#replayAnnotatedButton"),
   pauseAnnotatedButton: document.querySelector("#pauseAnnotatedButton"),
   editReviewFrameButton: document.querySelector("#editReviewFrameButton"),
+  downloadCorrectionsButton: document.querySelector("#downloadCorrectionsButton"),
   reviewFrameScrubber: document.querySelector("#reviewFrameScrubber"),
   reviewFrameLabel: document.querySelector("#reviewFrameLabel"),
   reviewFrameCanvas: document.querySelector("#reviewFrameCanvas"),
@@ -123,6 +126,11 @@ const dom = {
   addKeyframeButton: document.querySelector("#addKeyframeButton"),
   updateKeyframeButton: document.querySelector("#updateKeyframeButton"),
   deleteKeyframeButton: document.querySelector("#deleteKeyframeButton"),
+  keyframePickerScrubber: document.querySelector("#keyframePickerScrubber"),
+  keyframePickerCanvas: document.querySelector("#keyframePickerCanvas"),
+  keyframePickerLabel: document.querySelector("#keyframePickerLabel"),
+  previousKeyframePickerButton: document.querySelector("#previousKeyframePickerButton"),
+  nextKeyframePickerButton: document.querySelector("#nextKeyframePickerButton"),
   correctionChoice: document.querySelector("#correctionChoice"),
   fixKeyframesOnlyButton: document.querySelector("#fixKeyframesOnlyButton"),
   fixFullVideoButton: document.querySelector("#fixFullVideoButton"),
@@ -663,6 +671,7 @@ function updateWorkflow() {
   dom.editKeypointsButton.disabled = !roiRuntime.confirmed || !keyframes.length;
   if (dom.editKeyframeAnchorsButton) dom.editKeyframeAnchorsButton.disabled = !roiRuntime.confirmed || !keyframes.length;
   dom.exportVideoButton.disabled = !roiRuntime.confirmed || !keyframes.length || !poseCorrections.size || !keypointTrackingReady;
+  if (dom.downloadCorrectionsButton) dom.downloadCorrectionsButton.disabled = !poseCorrections.size;
   if (dom.correctionChoice) {
     const showCorrectionChoice = keyframes.length > 0 && (step === "frames" || step === "keypoints");
     dom.correctionChoice.classList.toggle("hidden", !showCorrectionChoice);
@@ -981,7 +990,9 @@ function resetRoiConfirmation(message = "Default PoC video is loaded. Adjust cro
   dom.keypointEditor.classList.remove("active");
   dom.childFrame.classList.remove("editing-keypoints");
   dom.editKeypointsButton.textContent = "Edit Full Video";
-  dom.downloadVideoLink.classList.add("hidden");
+  dom.downloadVideoLink.classList.add("disabled");
+  dom.downloadVideoLink.setAttribute("aria-disabled", "true");
+  dom.downloadVideoLink.removeAttribute("href");
   dom.annotatedVideoPanel.classList.add("hidden");
   dom.annotatedVideo.removeAttribute("src");
   dom.annotatedVideo.load();
@@ -3570,6 +3581,47 @@ function syncFrameScrubber() {
   updateEditPlaybackButton();
 }
 
+function syncKeyframePicker() {
+  if (!dom.keyframePickerScrubber || !dom.childVideo) return;
+  const duration = Number.isFinite(dom.childVideo.duration) ? dom.childVideo.duration : 0;
+  const time = clamp(Number(dom.childVideo.currentTime || 0), 0, Math.max(0, duration));
+  dom.keyframePickerScrubber.max = String(Math.max(0, duration));
+  dom.keyframePickerScrubber.value = String(time);
+  const frame = frameIndexForTime(time);
+  if (dom.keyframePickerLabel) dom.keyframePickerLabel.textContent = `${time.toFixed(2)}s · Frame ${frame}`;
+  renderKeyframePickerPreview();
+}
+
+function renderKeyframePickerPreview() {
+  const video = dom.childVideo;
+  const canvas = dom.keyframePickerCanvas;
+  if (!canvas || !video || video.readyState < 2 || !video.videoWidth || !video.videoHeight) return;
+  const crop = getPlayerCropSource(video);
+  const width = 720;
+  const height = Math.max(1, Math.round(width * crop.height / Math.max(1, crop.width)));
+  if (canvas.width !== width) canvas.width = width;
+  if (canvas.height !== height) canvas.height = height;
+  const context = canvas.getContext("2d");
+  context.clearRect(0, 0, width, height);
+  context.drawImage(video, crop.x, crop.y, crop.width, crop.height, 0, 0, width, height);
+}
+
+async function seekKeyframePickerTo(time) {
+  const duration = Number.isFinite(dom.childVideo.duration) ? dom.childVideo.duration : 0;
+  const target = clamp(Number(time || 0), 0, Math.max(0, duration));
+  dom.childVideo.pause();
+  await seekVideoToTime(dom.childVideo, target, 1200).catch(() => {
+    dom.childVideo.currentTime = target;
+  });
+  syncKeyframePicker();
+  drawPoseLoop();
+}
+
+function stepKeyframePicker(direction) {
+  const fps = Math.max(1, Number(dom.fpsInput?.value || 60));
+  seekKeyframePickerTo(Number(dom.childVideo.currentTime || 0) + direction / fps);
+}
+
 function displayedEditorFrame() {
   if (poseRuntime.editMode && Number.isFinite(Number(poseRuntime.editorFrame))) {
     return currentEditorFrameIndex();
@@ -5897,6 +5949,38 @@ function serializePoseCorrections() {
   ]);
 }
 
+function downloadFrameCorrections() {
+  if (!poseCorrections.size) {
+    dom.roiStatus.textContent = "No frame corrections are available to download yet.";
+    return;
+  }
+  const baseName = String(dom.childFileName.textContent || "motion-analysis")
+    .replace(/\.[^.]+$/, "")
+    .replace(/[^A-Za-z0-9_-]+/g, "-") || "motion-analysis";
+  const payload = {
+    schemaVersion: 1,
+    exportedAt: new Date().toISOString(),
+    sourceVideoName: dom.childFileName.textContent || "",
+    fps: Math.max(1, Number(dom.fpsInput?.value || 60)),
+    duration: Number(dom.childVideo.duration || 0),
+    totalFrames: totalFrameCount(dom.childVideo),
+    roi: { confirmed: roiRuntime.confirmed, crop: { ...roiRuntime.crop } },
+    correctionScope,
+    frames: serializePoseCorrections().map(([frame, pose, source]) => ({ frame, source, pose })),
+    keyframes: keyframes.map((item) => ({
+      phase: item.phase,
+      time: item.time,
+      frameIndex: keyframeToFrameIndex(item),
+      poseSource: item.poseSource || "detected",
+      pose: clonePose(item.pose || {}),
+    })),
+    ballAnchors: sortedBallAnchorFrames(),
+    racketManualFrames: Array.from(racketManualFrames).sort((a, b) => a - b),
+  };
+  downloadJsonFile(`${baseName}-frame-corrections.json`, payload);
+  dom.roiStatus.textContent = `Saved ${payload.frames.length} corrected/tracked frames to JSON.`;
+}
+
 function restorePoseCorrections(entries = [], savedBallAnchors = [], savedRacketManualFrames = []) {
   poseCorrections.clear();
   poseCorrectionSources.clear();
@@ -5982,20 +6066,39 @@ function draftPayload() {
 
 function saveDraft() {
   const payload = draftPayload();
-  localStorage.setItem(draftStorageKey, JSON.stringify(payload));
-  dom.draftStatus.textContent = `Draft saved ${new Date(payload.savedAt).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}`;
+  const savedLabel = new Date(payload.savedAt).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+
+  try {
+    localStorage.setItem(draftStorageKey, JSON.stringify(payload));
+    dom.draftStatus.textContent = `Draft saved ${savedLabel}`;
+  } catch (error) {
+    // Embedded frame previews can exceed the browser's localStorage quota. Keep
+    // the editable frame data in a compact browser draft and download the full
+    // payload (including previews) as a recovery file.
+    const compactPayload = {
+      ...payload,
+      keyframes: payload.keyframes.map((frame) => ({ ...frame, image: null })),
+    };
+
+    try {
+      localStorage.setItem(draftStorageKey, JSON.stringify(compactPayload));
+      const safeName = (payload.fileName || "motion-analysis")
+        .replace(/\.[^.]+$/, "")
+        .replace(/[^a-z0-9_-]+/gi, "-")
+        .replace(/^-+|-+$/g, "") || "motion-analysis";
+      downloadJsonFile(`${safeName}-full-draft.json`, payload);
+      dom.draftStatus.textContent = `Draft saved ${savedLabel}. Full recovery file downloaded.`;
+    } catch (compactError) {
+      downloadJsonFile("motion-analysis-emergency-draft.json", payload);
+      dom.draftStatus.textContent = "Browser storage is full. Full recovery file downloaded instead.";
+    }
+  }
+
   updateDraftControls();
 }
 
-function loadDraft() {
-  const raw = localStorage.getItem(draftStorageKey);
-  if (!raw) {
-    dom.draftStatus.textContent = "No draft found.";
-    return;
-  }
-
+function applyDraftPayload(draft) {
   try {
-    const draft = JSON.parse(raw);
     if (draft.motion) {
       dom.strokeType.value = draft.motion.strokeType || dom.strokeType.value;
       dom.dominantHand.value = draft.motion.dominantHand || dom.dominantHand.value;
@@ -6041,6 +6144,38 @@ function loadDraft() {
     updateWorkflow();
   } catch {
     dom.draftStatus.textContent = "Draft could not be loaded.";
+  }
+}
+
+function loadDraft() {
+  const raw = localStorage.getItem(draftStorageKey);
+  if (!raw) {
+    dom.draftStatus.textContent = "No draft found.";
+    return;
+  }
+
+  try {
+    applyDraftPayload(JSON.parse(raw));
+  } catch {
+    dom.draftStatus.textContent = "Draft could not be loaded.";
+  }
+}
+
+async function importDraftFile(event) {
+  const file = event.target.files?.[0];
+  if (!file) return;
+  try {
+    const draft = JSON.parse(await file.text());
+    if (!Array.isArray(draft.keyframes) || !Array.isArray(draft.corrections)) {
+      throw new Error("Invalid motion-analysis draft");
+    }
+    applyDraftPayload(draft);
+    dom.draftStatus.textContent = `Draft imported: ${file.name} (${draft.corrections.length} corrected frames)`;
+  } catch (error) {
+    console.warn("Draft import failed", error);
+    dom.draftStatus.textContent = "Draft file could not be imported.";
+  } finally {
+    event.target.value = "";
   }
 }
 
@@ -6890,14 +7025,19 @@ async function captureCurrentKeyframe(phase = currentPhaseName()) {
   await detectChildPose(dom.childVideo, { force: true });
   await nextPaint();
   const frameIndex = currentFrameIndex(dom.childVideo);
-  const pose = snapshotDetectedPoseForKeyframe(frameIndex);
+  const detectedPose = snapshotDetectedPoseForKeyframe(frameIndex);
+  const pose = detectedPose || baselinePoseForFrame(frameIndex);
+  const image = detectedPose
+    ? captureAnalysisFrame(detectedPose)
+    : captureRawKeyframeImage();
   return {
     phase,
     time: dom.childVideo.currentTime || 0,
     frameIndex,
     note: `Manually selected frame at ${(dom.childVideo.currentTime || 0).toFixed(2)}s.`,
-    image: captureAnalysisFrame(pose),
+    image,
     pose,
+    poseSource: detectedPose ? "mediaPipe" : "fallbackTemplate",
   };
 }
 
@@ -6918,15 +7058,22 @@ async function addCurrentKeyframe() {
 async function updateSelectedKeyframe() {
   if (!keyframes.length) return;
   const current = keyframes[selectedKeyframeIndex];
+  const oldFrameIndex = keyframeToFrameIndex(current);
   const frame = await captureCurrentKeyframe(current?.phase || "Custom");
   if (!frame) return;
   frame.note = current?.note || frame.note;
   keyframes[selectedKeyframeIndex] = frame;
   const frameIndex = keyframeToFrameIndex(frame);
+  if (oldFrameIndex !== frameIndex && poseCorrectionSources.get(oldFrameIndex) === "defaultAnchor") {
+    poseCorrections.delete(oldFrameIndex);
+    poseCorrectionSources.delete(oldFrameIndex);
+  }
   seedDefaultAnchorForFrame(frameIndex, "defaultAnchor", frame.pose);
   scheduleAutoSmoothTrack("Anchor frame updated. Updating nearby tracked result.", frameIndex);
   keypointTrackingReady = false;
   renderKeyframes();
+  dom.keyframeStatus.textContent = `${frame.phase} replaced with frame ${frameIndex} at ${frame.time.toFixed(2)}s.`;
+  dom.roiStatus.textContent = `Selected key frame updated to ${frame.time.toFixed(2)}s. Review the preview, then continue corrections.`;
   invalidateKeypointVideo("Selected key frame changed. Render a new review video.");
   updateWorkflow();
 }
@@ -6963,6 +7110,9 @@ function selectKeyframe(index) {
     }
   }
   renderKeyframes();
+  if (frame) {
+    dom.keyframeStatus.textContent = `Selected ${frame.phase} at ${Number(frame.time || 0).toFixed(2)}s. Move the video to a better moment, then replace it.`;
+  }
 }
 
 function expandKeyframe(index) {
@@ -7062,22 +7212,24 @@ async function exportKeypointVideo() {
   const video = dom.childVideo;
   const originalTime = video.currentTime || 0;
   const wasPaused = video.paused;
+  const originalMuted = video.muted;
+  const originalPlaybackRate = video.playbackRate;
   const exportRect = reviewRenderRect(720);
   const output = document.createElement("canvas");
   output.width = exportRect.width;
   output.height = exportRect.height;
   const exportFrameRate = 20;
-  const exportDuration = Math.min(
-    Number.isFinite(video.duration) && video.duration > 0 ? video.duration : 4,
-    8,
-  );
-  const stream = output.captureStream(0);
-  const canvasTrack = stream.getVideoTracks?.()[0];
-  const recorderOptions = MediaRecorder.isTypeSupported("video/webm;codecs=vp9")
-    ? { mimeType: "video/webm;codecs=vp9" }
-    : MediaRecorder.isTypeSupported("video/webm")
-      ? { mimeType: "video/webm" }
-      : {};
+  const exportDuration = Number.isFinite(video.duration) && video.duration > 0 ? video.duration : 4;
+  const stream = output.captureStream(exportFrameRate);
+  const recorderOptions = MediaRecorder.isTypeSupported("video/mp4;codecs=avc1.42E01E")
+    ? { mimeType: "video/mp4;codecs=avc1.42E01E" }
+    : MediaRecorder.isTypeSupported("video/mp4")
+      ? { mimeType: "video/mp4" }
+      : MediaRecorder.isTypeSupported("video/webm;codecs=vp9")
+        ? { mimeType: "video/webm;codecs=vp9" }
+        : MediaRecorder.isTypeSupported("video/webm")
+          ? { mimeType: "video/webm" }
+          : {};
   const recorder = new MediaRecorder(stream, recorderOptions);
   const chunks = [];
 
@@ -7086,7 +7238,9 @@ async function exportKeypointVideo() {
   };
 
   dom.exportVideoButton.disabled = true;
-  dom.downloadVideoLink.classList.add("hidden");
+  dom.downloadVideoLink.classList.add("disabled");
+  dom.downloadVideoLink.setAttribute("aria-disabled", "true");
+  dom.downloadVideoLink.removeAttribute("href");
   dom.annotatedVideoPanel.classList.remove("hidden");
   reviewVideoRendering = true;
   dom.annotatedVideo.removeAttribute("src");
@@ -7102,9 +7256,6 @@ async function exportKeypointVideo() {
 
   const paintExportFrame = async (frameIndex = currentFrameIndex(video)) => {
     const hasVideoFrame = await paintAnnotatedFrameToCanvasAtFrame(output, frameIndex, exportRect);
-    if (typeof canvasTrack?.requestFrame === "function") {
-      canvasTrack.requestFrame();
-    }
     return hasVideoFrame;
   };
 
@@ -7123,27 +7274,38 @@ async function exportKeypointVideo() {
   }
 
   recorder.start(250);
-  const frameCount = Math.max(1, Math.ceil(exportDuration * exportFrameRate));
+  await new Promise((resolve) => window.setTimeout(resolve, 120));
 
   try {
-    for (let frame = 0; frame < frameCount; frame += 1) {
-      const time = clamp(frame / exportFrameRate, 0, exportDuration);
-      await seekVideoToTime(video, time, 900);
+    // Play the source in real time while recording the canvas. Repeated seeks
+    // can leave the browser decoder on one frame even when currentTime changes.
+    video.muted = true;
+    video.playbackRate = 1;
+    await video.play();
+    const deadline = Date.now() + Math.ceil((exportDuration + 3) * 1000);
+    while (!video.ended && video.currentTime < exportDuration - 0.001 && Date.now() < deadline) {
+      const time = clamp(video.currentTime, 0, exportDuration);
       await paintExportFrame(frameIndexForTime(time));
-      const progress = clamp((frame + 1) / frameCount, 0, 1);
+      const progress = clamp(time / Math.max(0.01, exportDuration), 0, 1);
       dom.annotatedVideoStatus.textContent = `Rendering annotated video... ${Math.round(progress * 100)}%`;
       await new Promise((resolve) => window.setTimeout(resolve, 1000 / exportFrameRate));
     }
+    video.pause();
+    await paintExportFrame(frameIndexForTime(Math.min(exportDuration, video.currentTime)));
   } catch (error) {
     console.warn("Review video frame rendering failed", error);
     dom.roiStatus.textContent = "Review video rendering had trouble. Use the frame preview, then try rendering again.";
   }
 
+  await new Promise((resolve) => window.setTimeout(resolve, 160));
   recorder.stop();
   video.pause();
+  video.muted = originalMuted;
+  video.playbackRate = originalPlaybackRate;
   await done;
 
-  const blob = new Blob(chunks, { type: "video/webm" });
+  const recordedMimeType = recorder.mimeType || chunks[0]?.type || "video/webm";
+  const blob = new Blob(chunks, { type: recordedMimeType });
   if (blob.size < 2048) {
     reviewVideoRendering = false;
     keypointVideoReady = false;
@@ -7153,7 +7315,9 @@ async function exportKeypointVideo() {
     dom.annotatedVideo.load();
     syncAnnotatedVideoShell("review");
     dom.annotatedVideoStatus.textContent = "Video recorder returned an empty file. Frame Preview is still available.";
-    dom.downloadVideoLink.classList.add("hidden");
+    dom.downloadVideoLink.classList.add("disabled");
+    dom.downloadVideoLink.setAttribute("aria-disabled", "true");
+    dom.downloadVideoLink.removeAttribute("href");
     dom.roiStatus.textContent = "Review video was empty. Check Frame Preview or render again.";
     dom.exportVideoButton.disabled = false;
     updateWorkflow();
@@ -7174,7 +7338,11 @@ async function exportKeypointVideo() {
   syncAnnotatedVideoShell("review");
   dom.annotatedVideoStatus.textContent = "Ready for replay and frame review";
   dom.downloadVideoLink.href = url;
-  dom.downloadVideoLink.classList.remove("hidden");
+  const sourceName = String(dom.childFileName.textContent || "keypoint-detection").replace(/\.[^.]+$/, "").replace(/[^A-Za-z0-9_-]+/g, "-");
+  const videoExtension = recordedMimeType.includes("mp4") ? "mp4" : "webm";
+  dom.downloadVideoLink.download = `${sourceName || "keypoint-detection"}-keypoints.${videoExtension}`;
+  dom.downloadVideoLink.classList.remove("disabled");
+  dom.downloadVideoLink.setAttribute("aria-disabled", "false");
   dom.roiStatus.textContent = "Annotated keypoint video rendered.";
   dom.exportVideoButton.disabled = false;
   updateWorkflow();
@@ -7396,6 +7564,8 @@ dom.analyzeButton.onclick = runWorkflowPrimaryAction;
 dom.workflowNextButton.onclick = runWorkflowPrimaryAction;
 dom.saveDraftButton.addEventListener("click", saveDraft);
 dom.loadDraftButton.addEventListener("click", loadDraft);
+dom.importDraftButton?.addEventListener("click", () => dom.importDraftInput?.click());
+dom.importDraftInput?.addEventListener("change", importDraftFile);
 dom.confirmRoiButton.addEventListener("click", confirmRoi);
 dom.editKeyframeAnchorsButton?.addEventListener("click", openSelectedKeyframeEditor);
 dom.editKeypointsButton.addEventListener("click", () => {
@@ -7411,6 +7581,7 @@ dom.exportVideoButton.addEventListener("click", exportKeypointVideo);
 dom.replayAnnotatedButton.addEventListener("click", replayAnnotatedVideo);
 dom.pauseAnnotatedButton.addEventListener("click", toggleAnnotatedPause);
 dom.editReviewFrameButton.addEventListener("click", editCurrentReviewFrame);
+dom.downloadCorrectionsButton?.addEventListener("click", downloadFrameCorrections);
 dom.annotatedVideo.addEventListener("play", updateAnnotatedPlaybackState);
 dom.annotatedVideo.addEventListener("pause", updateAnnotatedPlaybackState);
 dom.annotatedVideo.addEventListener("pause", syncReviewPreviewFromAnnotatedVideo);
@@ -7420,6 +7591,11 @@ dom.reviewFrameScrubber?.addEventListener("input", () => {
   dom.annotatedVideo.pause();
   renderReviewFramePreview(Number(dom.reviewFrameScrubber.value || 0));
 });
+dom.keyframePickerScrubber?.addEventListener("input", () => {
+  seekKeyframePickerTo(Number(dom.keyframePickerScrubber.value || 0));
+});
+dom.previousKeyframePickerButton?.addEventListener("click", () => stepKeyframePicker(-1));
+dom.nextKeyframePickerButton?.addEventListener("click", () => stepKeyframePicker(1));
 dom.frameScrubber.addEventListener("input", () => {
   seekToScrubbedFrame().catch((error) => {
     console.warn("Could not seek to scrubbed frame", error);
@@ -7432,6 +7608,11 @@ dom.keypointSelect.addEventListener("change", () => {
 });
 dom.toggleKeypointVisibilityButton.addEventListener("click", toggleSelectedKeypointVisibility);
 dom.childVideo.addEventListener("timeupdate", syncFrameScrubber);
+dom.childVideo.addEventListener("timeupdate", syncKeyframePicker);
+dom.childVideo.addEventListener("loadedmetadata", syncKeyframePicker);
+dom.childVideo.addEventListener("durationchange", syncKeyframePicker);
+dom.childVideo.addEventListener("canplay", syncKeyframePicker);
+dom.childVideo.addEventListener("seeked", syncKeyframePicker);
 dom.childVideo.addEventListener("play", updateEditPlaybackButton);
 dom.childVideo.addEventListener("pause", updateEditPlaybackButton);
 dom.editPlayPauseButton.addEventListener("click", toggleEditPlayback);
@@ -7439,6 +7620,9 @@ dom.saveKeyframeAnchorButton.addEventListener("click", saveKeyframeAnchor);
 dom.generateTrackedFramesButton.addEventListener("click", generateSmoothTrack);
 dom.saveTrainingSampleButton.addEventListener("click", saveTrainingSample);
 dom.suggestedAnchorButton.addEventListener("click", goToSuggestedAnchorFrame);
+window.setTimeout(syncKeyframePicker, 0);
+window.setTimeout(syncKeyframePicker, 250);
+window.setTimeout(syncKeyframePicker, 1000);
 dom.lowQualityFrames.addEventListener("click", (event) => {
   const chip = event.target.closest("[data-frame]");
   if (!chip) return;
