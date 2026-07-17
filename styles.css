@@ -698,6 +698,22 @@ input[type="range"] {
   text-decoration: underline;
 }
 
+.download-link.disabled {
+  color: var(--muted);
+  cursor: not-allowed;
+  opacity: 0.58;
+  pointer-events: none;
+  text-decoration: none;
+}
+
+.annotated-tools .download-link {
+  min-height: 34px;
+  padding: 0 12px;
+  border: 1px solid rgba(20, 122, 85, 0.32);
+  border-radius: 6px;
+  background: #eff9f3;
+}
+
 .roi-actions span {
   color: var(--muted);
   font-size: 12px;
@@ -1891,6 +1907,72 @@ canvas {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
+}
+
+.keyframe-edit-help {
+  margin: 0;
+  padding: 10px 12px;
+  border-left: 4px solid rgba(20, 122, 85, 0.5);
+  border-radius: 6px;
+  background: #f3fbf6;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 760;
+  line-height: 1.5;
+}
+
+.keyframe-picker {
+  display: grid;
+  gap: 9px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfdfb;
+}
+
+.keyframe-picker-head,
+.keyframe-picker-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.keyframe-picker-head span {
+  color: var(--green);
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.keyframe-picker input[type="range"] {
+  width: 100%;
+}
+
+#keyframePickerCanvas {
+  position: static;
+  inset: auto;
+  display: block;
+  width: auto;
+  max-width: 100%;
+  height: min(36vh, 320px);
+  max-height: 320px;
+  margin: 0 auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #101815;
+  object-fit: contain;
+}
+
+.keyframe-picker-actions button {
+  min-height: 34px;
+  padding: 0 12px;
+  border: 1px solid rgba(20, 122, 85, 0.28);
+  border-radius: 6px;
+  background: #eff9f3;
+  color: var(--green);
+  cursor: pointer;
+  font-weight: 900;
 }
 
 .keyframe-card {
