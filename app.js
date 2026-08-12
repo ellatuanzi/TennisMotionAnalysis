@@ -4082,6 +4082,11 @@ async function openFullVideoEditor() {
 
 async function ensureRawFramesForKeyframes() {
   if (!keyframes.length || !dom.childVideo) return;
+  keyframes.forEach((frame) => {
+    if (!frame.rawFrame && !frame.rawImage && frame.image) {
+      frame.rawFrame = frame.image;
+    }
+  });
   const missing = keyframes.some((frame) => !frame.rawFrame && !frame.rawImage);
   if (!missing) return;
   const video = dom.childVideo;
@@ -4098,6 +4103,11 @@ async function ensureRawFramesForKeyframes() {
     const time = Number.isFinite(Number(frame.time)) ? Number(frame.time) : frameIndex / fps;
     try {
       await seekVideoToTime(video, time, 1000);
+      const actualFrame = currentFrameIndex(video);
+      const frameTolerance = Math.max(1, Math.round(fps * 0.05));
+      if (Math.abs(actualFrame - frameIndex) > frameTolerance) {
+        throw new Error(`Expected frame ${frameIndex}, got ${actualFrame}`);
+      }
       await nextPaint();
       frame.rawFrame = captureRawKeyframeImage() || frame.image || "";
     } catch (error) {
@@ -6579,9 +6589,12 @@ async function refreshAnalysisStageImages(data = latestAnalysis) {
     const defaultFrame = clampFrameIndex(keyframeToFrameIndex(match), video);
     const editedFrame = editedAnchorFrameForStage(stage, match);
     const frameIndex = Number.isFinite(editedFrame) ? editedFrame : defaultFrame;
-    if (isRawKeyframeAnalysisMode() && match.image) {
-      analysisStageImageCache.set(frameIndex, match.image);
-      analysisStageImageCache.set(stageImageCacheKey(stage), match.image);
+    if (isRawKeyframeAnalysisMode()) {
+      const rawImage = match.rawFrame || match.rawImage || match.image || "";
+      if (rawImage) {
+        analysisStageImageCache.set(frameIndex, rawImage);
+        analysisStageImageCache.set(stageImageCacheKey(stage), rawImage);
+      }
       continue;
     }
     const time = frameIndex / fps;
