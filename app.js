@@ -126,6 +126,9 @@ const dom = {
   addKeyframeButton: document.querySelector("#addKeyframeButton"),
   updateKeyframeButton: document.querySelector("#updateKeyframeButton"),
   deleteKeyframeButton: document.querySelector("#deleteKeyframeButton"),
+  keyframeLabelEditor: document.querySelector("#keyframeLabelEditor"),
+  keyframeLabelInput: document.querySelector("#keyframeLabelInput"),
+  saveKeyframeLabelButton: document.querySelector("#saveKeyframeLabelButton"),
   keyframePickerScrubber: document.querySelector("#keyframePickerScrubber"),
   keyframePickerCanvas: document.querySelector("#keyframePickerCanvas"),
   keyframePickerLabel: document.querySelector("#keyframePickerLabel"),
@@ -172,6 +175,22 @@ const phaseLabels = {
   contact: "Contact",
   follow: "Follow",
 };
+
+function escapeHtml(value = "") {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function normalizeKeyframeLabel(value = "") {
+  return String(value)
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 64);
+}
 
 const defaultCoachingNotes = `ATTICUS CAI -- Serve Progression checkpoints:
 - Stage 1 Setup: balanced platform stance, quiet head, relaxed hands, and a repeatable starting rhythm.
@@ -5907,13 +5926,14 @@ function analysisDiaryEntry(options = {}) {
     const metrics = detections.map((metric) => `${metric.label}: ${metric.value}`).join("; ");
     const stageEvidence = String(stage.evidence || "").trim();
     const notePrefix = /^Coach note:/i.test(stageEvidence) ? stageEvidence : `Evidence: ${stageEvidence}`;
+    const exportedPhase = normalizeKeyframeLabel(representativeFrame?.phase) || stageShortName(stage.name);
     return {
       time: representativeFrame ? keyframeTimeLabel(representativeIndex) : keyframeTimeLabel(index),
       timeSeconds: Number.isFinite(exportedFrameIndex)
         ? exportedFrameIndex / Math.max(1, Number(dom.fpsInput?.value || 60))
         : null,
       frameIndex: Number.isFinite(exportedFrameIndex) ? exportedFrameIndex : null,
-      phase: stageShortName(stage.name),
+      phase: exportedPhase,
       score: stage.score,
       status: stage.score >= 80 ? "good" : "issue",
       points: `${stage.quality}. ${metrics || stage.metric}. Focus: ${stage.next}`,
@@ -6035,6 +6055,8 @@ function downloadFrameCorrections() {
     frames: serializePoseCorrections().map(([frame, pose, source]) => ({ frame, source, pose })),
     keyframes: keyframes.map((item) => ({
       phase: item.phase,
+      phaseId: item.phaseId,
+      swingIndex: item.swingIndex,
       time: item.time,
       frameIndex: keyframeToFrameIndex(item),
       poseSource: item.poseSource || "detected",
@@ -6100,11 +6122,14 @@ function draftPayload() {
     },
     keyframes: keyframes.map((frame) => ({
       phase: frame.phase,
+      phaseId: frame.phaseId,
+      swingIndex: frame.swingIndex,
       time: frame.time,
       frameIndex: frame.frameIndex,
       note: frame.note,
       image: frame.image,
       pose: clonePose(frame.pose || {}),
+      poseSource: frame.poseSource,
     })),
     selectedKeyframeIndex,
     keypointTrackingReady,
@@ -6194,7 +6219,7 @@ function applyDraftPayload(draft) {
     keyframes = Array.isArray(draft.keyframes) ? draft.keyframes : [];
     selectedKeyframeIndex = clamp(Number(draft.selectedKeyframeIndex || 0), 0, Math.max(0, keyframes.length - 1));
     restorePoseCorrections(draft.corrections || [], draft.ballAnchors || [], draft.racketManualFrames || []);
-    correctionScope = draft.correctionScope === "keyframes" ? "keyframes" : "video";
+    correctionScope = ["keyframes", "keyframesRaw"].includes(draft.correctionScope) ? draft.correctionScope : "video";
     keypointTrackingReady = Boolean(draft.keypointTrackingReady);
     keypointVideoReady = false;
     motionAnalysisReady = false;
@@ -7048,9 +7073,10 @@ async function generateKeyframes(data) {
 function renderKeyframes() {
   if (!keyframes.length) {
     dom.keyframeGrid.innerHTML = strokeStageTemplate()
-      .map((stage) => `<article class="keyframe-card empty">${stageShortName(stage.name)}</article>`)
+      .map((stage) => `<article class="keyframe-card empty">${escapeHtml(stageShortName(stage.name))}</article>`)
       .join("");
     dom.keyframeStatus.textContent = "Run analysis to generate frames";
+    syncKeyframeLabelEditor();
     return;
   }
 
@@ -7061,16 +7087,17 @@ function renderKeyframes() {
         const source = poseCorrectionSources.get(frameIndex) || "defaultAnchor";
         const quality = trackingQualityForFrame(frameIndex);
         const needsCorrection = frame.poseSource === "fallbackTemplate";
+        const phase = normalizeKeyframeLabel(frame.phase) || "Custom";
         return `
         <article class="keyframe-card ${index === selectedKeyframeIndex ? "selected" : ""} ${needsCorrection ? "anchor-suggested" : anchorTypeClass(source)}" data-index="${index}">
-          <img src="${frame.image}" alt="${frame.phase} key frame" data-expand="${index}" />
+          <img src="${escapeHtml(frame.image)}" alt="${escapeHtml(phase)} key frame" data-expand="${index}" />
           <div class="keyframe-body">
             <div class="keyframe-title-row">
-              <strong>${frame.phase}</strong>
+              <strong>${escapeHtml(phase)}</strong>
               <span class="anchor-badge ${needsCorrection ? "anchor-suggested" : anchorTypeClass(source)}">${needsCorrection ? "Needs correction" : anchorTypeLabel(source)}</span>
             </div>
             <span class="keyframe-meta">${frame.time.toFixed(2)}s · ${needsCorrection ? "CV pose unavailable" : `quality ${quality.score}`}</span>
-            <p>${frame.note}</p>
+            <p>${escapeHtml(frame.note)}</p>
           </div>
         </article>
       `;
@@ -7078,10 +7105,32 @@ function renderKeyframes() {
     )
     .join("");
   dom.keyframeStatus.textContent = `${keyframes.length} key frame${keyframes.length === 1 ? "" : "s"}`;
+  syncKeyframeLabelEditor();
 }
 
 function currentPhaseName() {
-  return dom.phaseName.textContent || "Custom";
+  return normalizeKeyframeLabel(dom.phaseName.textContent) || "Custom";
+}
+
+function selectedKeyframeLabel() {
+  const frame = keyframes[selectedKeyframeIndex];
+  return normalizeKeyframeLabel(frame?.phase) || "Custom";
+}
+
+function syncKeyframeLabelEditor() {
+  if (!dom.keyframeLabelEditor || !dom.keyframeLabelInput || !dom.saveKeyframeLabelButton) return;
+  const hasKeyframes = keyframes.length > 0;
+  dom.keyframeLabelEditor.classList.toggle("hidden", !hasKeyframes);
+  dom.keyframeLabelInput.disabled = !hasKeyframes;
+  dom.saveKeyframeLabelButton.disabled = !hasKeyframes;
+  dom.keyframeLabelInput.value = hasKeyframes ? selectedKeyframeLabel() : "";
+}
+
+function nextCustomKeyframeLabel() {
+  const typed = normalizeKeyframeLabel(dom.keyframeLabelInput?.value);
+  if (typed && typed !== selectedKeyframeLabel()) return typed;
+  const customCount = keyframes.filter((frame) => /^custom(?:\s+\d+)?$/i.test(normalizeKeyframeLabel(frame.phase))).length;
+  return customCount ? `Custom ${customCount + 1}` : "Custom";
 }
 
 async function captureCurrentKeyframe(phase = currentPhaseName()) {
@@ -7113,7 +7162,7 @@ async function captureCurrentKeyframe(phase = currentPhaseName()) {
 }
 
 async function addCurrentKeyframe() {
-  const frame = await captureCurrentKeyframe("Custom");
+  const frame = await captureCurrentKeyframe(nextCustomKeyframeLabel());
   if (!frame) return;
   keyframes.push(frame);
   selectedKeyframeIndex = keyframes.length - 1;
@@ -7133,6 +7182,8 @@ async function updateSelectedKeyframe() {
   const frame = await captureCurrentKeyframe(current?.phase || "Custom");
   if (!frame) return;
   frame.note = current?.note || frame.note;
+  frame.phaseId = current?.phaseId || frame.phaseId;
+  frame.swingIndex = current?.swingIndex || frame.swingIndex;
   keyframes[selectedKeyframeIndex] = frame;
   const frameIndex = keyframeToFrameIndex(frame);
   if (oldFrameIndex !== frameIndex && poseCorrectionSources.get(oldFrameIndex) === "defaultAnchor") {
@@ -7181,9 +7232,32 @@ function selectKeyframe(index) {
     }
   }
   renderKeyframes();
+  syncKeyframeLabelEditor();
   if (frame) {
     dom.keyframeStatus.textContent = `Selected ${frame.phase} at ${Number(frame.time || 0).toFixed(2)}s. Move the video to a better moment, then replace it.`;
   }
+}
+
+function saveSelectedKeyframeLabel() {
+  if (!keyframes.length || !dom.keyframeLabelInput) return;
+  const label = normalizeKeyframeLabel(dom.keyframeLabelInput.value);
+  if (!label) {
+    dom.keyframeStatus.textContent = "Type a label for the selected key frame.";
+    syncKeyframeLabelEditor();
+    return;
+  }
+  const frame = keyframes[selectedKeyframeIndex];
+  if (!frame) return;
+  frame.phase = label;
+  if (!frame.note || /^Manually selected frame at/i.test(frame.note)) {
+    frame.note = `Manually selected ${label} frame at ${Number(frame.time || 0).toFixed(2)}s.`;
+  }
+  keypointTrackingReady = false;
+  motionAnalysisReady = false;
+  renderKeyframes();
+  invalidateKeypointVideo("Key frame label changed. Render a new review video or analyze from key frames.");
+  dom.keyframeStatus.textContent = `Label saved: ${label}`;
+  updateWorkflow();
 }
 
 function expandKeyframe(index) {
@@ -7746,6 +7820,13 @@ dom.detectKeyframesButton.onclick = detectKeyframes;
 dom.addKeyframeButton.addEventListener("click", addCurrentKeyframe);
 dom.updateKeyframeButton.addEventListener("click", updateSelectedKeyframe);
 dom.deleteKeyframeButton.addEventListener("click", deleteSelectedKeyframe);
+dom.saveKeyframeLabelButton?.addEventListener("click", saveSelectedKeyframeLabel);
+dom.keyframeLabelInput?.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") {
+    event.preventDefault();
+    saveSelectedKeyframeLabel();
+  }
+});
 dom.closeFrameModal.addEventListener("click", () => dom.frameModal.close());
 dom.keyframeGrid.addEventListener("click", (event) => {
   const card = event.target.closest(".keyframe-card[data-index]");
