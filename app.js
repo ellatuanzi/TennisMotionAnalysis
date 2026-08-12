@@ -133,6 +133,7 @@ const dom = {
   nextKeyframePickerButton: document.querySelector("#nextKeyframePickerButton"),
   correctionChoice: document.querySelector("#correctionChoice"),
   fixKeyframesOnlyButton: document.querySelector("#fixKeyframesOnlyButton"),
+  useKeyframesOnlyButton: document.querySelector("#useKeyframesOnlyButton"),
   fixFullVideoButton: document.querySelector("#fixFullVideoButton"),
   correctionModeStatus: document.querySelector("#correctionModeStatus"),
   frameModal: document.querySelector("#frameModal"),
@@ -543,6 +544,7 @@ function currentWorkflowStep() {
   }
   if (workflowStepOverride && canNavigateToWorkflowStep(workflowStepOverride)) return workflowStepOverride;
   if (workflowStepOverride && !canNavigateToWorkflowStep(workflowStepOverride)) workflowStepOverride = null;
+  if (isRawKeyframeAnalysisReady()) return "analysis";
   if (!poseCorrections.size) return "keypoints";
   if (!keypointTrackingReady) return "keypoints";
   if (isKeyframeOnlyCorrectionReady()) return "analysis";
@@ -554,12 +556,26 @@ function isKeyframeOnlyCorrectionMode() {
   return correctionScope === "keyframes";
 }
 
+function isRawKeyframeAnalysisMode() {
+  return correctionScope === "keyframesRaw";
+}
+
 function isKeyframeOnlyCorrectionReady() {
   return isKeyframeOnlyCorrectionMode()
     && roiRuntime.confirmed
     && keyframes.length > 0
     && poseCorrections.size > 0
     && keypointTrackingReady;
+}
+
+function isRawKeyframeAnalysisReady() {
+  return isRawKeyframeAnalysisMode()
+    && roiRuntime.confirmed
+    && keyframes.length > 0;
+}
+
+function isAnalysisInputReady() {
+  return keypointVideoReady || isKeyframeOnlyCorrectionReady() || isRawKeyframeAnalysisReady();
 }
 
 function scrollToMotionAnalysis() {
@@ -575,6 +591,11 @@ function workflowHintText(step) {
   if (step === "frames") return "Choose the important swing frames. Use Auto Detect first, then add, update, or delete frames from the video.";
   if (step === "keypoints") return "Step 3: choose Edit Key Frames Only to fix selected anchors, or Edit Full Video for frame-by-frame corrections. Save anchors before smoothing.";
   if (step === "review") return "Render the review video from the smoothed tracked frames. If it looks wrong, return to Frame Corrections and smooth again.";
+  if (isRawKeyframeAnalysisMode()) {
+    return motionAnalysisReady
+      ? "Motion analysis is complete from manually selected key frames."
+      : "Manual key frames are ready. Run motion analysis without keypoint detection or a review video.";
+  }
   if (isKeyframeOnlyCorrectionMode() && !keypointVideoReady) {
     return motionAnalysisReady
       ? "Motion analysis is complete from corrected key frames. Return to Frame Corrections if the anchors need adjustment."
@@ -607,7 +628,7 @@ function syncAnnotatedVideoShell(step = currentWorkflowStep()) {
   dom.annotatedVideoPanel.classList.toggle("review-video-empty", !hasVideo);
   dom.annotatedVideoPanel.classList.toggle("review-video-rendering", reviewVideoRendering);
   dom.annotatedVideoPanel.classList.toggle("has-review-video", hasVideo && !reviewVideoRendering);
-  if (!hasVideo && !reviewVideoRendering && (step === "review" || (step === "analysis" && !isKeyframeOnlyCorrectionMode())) && dom.childVideo?.src && roiRuntime.confirmed) {
+  if (!hasVideo && !reviewVideoRendering && (step === "review" || (step === "analysis" && !isKeyframeOnlyCorrectionMode() && !isRawKeyframeAnalysisMode())) && dom.childVideo?.src && roiRuntime.confirmed) {
     setupReviewFramePreview(currentFrameIndex(dom.childVideo));
   }
 }
@@ -625,11 +646,13 @@ function updateStepVisibility(step) {
     setPanelVisible(panel, visibleSteps.includes(step));
   });
   const showAnnotatedVideoPanel = step === "review"
-    || (step === "analysis" && (!isKeyframeOnlyCorrectionMode() || keypointVideoReady));
+    || (step === "analysis" && ((!isKeyframeOnlyCorrectionMode() && !isRawKeyframeAnalysisMode()) || keypointVideoReady));
   if (showAnnotatedVideoPanel) {
     dom.annotatedVideoPanel.classList.remove("hidden");
     if (!keypointVideoReady && dom.annotatedVideoStatus) {
-      dom.annotatedVideoStatus.textContent = isKeyframeOnlyCorrectionMode()
+      dom.annotatedVideoStatus.textContent = isRawKeyframeAnalysisMode()
+        ? "Skipped for raw key-frame analysis"
+        : isKeyframeOnlyCorrectionMode()
         ? "Skipped for key-frame-only analysis"
         : "Render video to review detection";
     }
@@ -677,13 +700,16 @@ function updateWorkflow() {
     dom.correctionChoice.classList.toggle("hidden", !showCorrectionChoice);
   }
   if (dom.fixKeyframesOnlyButton) dom.fixKeyframesOnlyButton.disabled = !roiRuntime.confirmed || !keyframes.length;
+  if (dom.useKeyframesOnlyButton) dom.useKeyframesOnlyButton.disabled = !roiRuntime.confirmed || !keyframes.length;
   if (dom.fixFullVideoButton) dom.fixFullVideoButton.disabled = !roiRuntime.confirmed || !keyframes.length;
   if (dom.correctionModeStatus) {
     if (keyframes.length) {
       dom.correctionModeStatus.textContent = step === "keypoints"
         ? poseRuntime.editMode
           ? "Edit the selected key frame, save it as an anchor, then choose another card if needed."
-          : "Choose Edit Key Frames Only, or click any key-frame card to edit that anchor."
+          : isRawKeyframeAnalysisMode()
+            ? "Raw key-frame analysis selected. Continue directly to motion analysis, or choose another correction path."
+            : "Choose Edit Key Frames Only, Use Key Frames Without Keypoints, or click any key-frame card to edit that anchor."
         : "Choose a correction path before Step 3.";
     } else {
       dom.correctionModeStatus.textContent = "Choose a path after key frames are ready.";
@@ -729,7 +755,7 @@ function updateWorkflow() {
   } else if (step === "review") {
     setPrimaryWorkflowAction("Render Review Video", !poseCorrections.size);
   } else {
-    const analysisInputReady = keypointVideoReady || isKeyframeOnlyCorrectionReady();
+    const analysisInputReady = isAnalysisInputReady();
     setPrimaryWorkflowAction(motionAnalysisReady ? "Re-analyze Motion" : "Analyze Motion", !analysisInputReady);
   }
   updateDraftControls();
@@ -739,8 +765,8 @@ function canNavigateToWorkflowStep(step) {
   if (step === "roi") return true;
   if (step === "frames") return roiRuntime.confirmed;
   if (step === "keypoints") return roiRuntime.confirmed && keyframes.length > 0;
-  if (step === "review") return !isKeyframeOnlyCorrectionMode() && roiRuntime.confirmed && keyframes.length > 0 && poseCorrections.size > 0 && keypointTrackingReady;
-  if (step === "analysis") return keypointVideoReady || isKeyframeOnlyCorrectionReady();
+  if (step === "review") return !isKeyframeOnlyCorrectionMode() && !isRawKeyframeAnalysisMode() && roiRuntime.confirmed && keyframes.length > 0 && poseCorrections.size > 0 && keypointTrackingReady;
+  if (step === "analysis") return isAnalysisInputReady();
   return false;
 }
 
@@ -765,7 +791,7 @@ function goToWorkflowStep(step) {
 
 function invalidateKeypointVideo(reason = "Keypoint changes need a new review video.") {
   if (!keypointVideoReady && !motionAnalysisReady) return;
-  const nextStep = isKeyframeOnlyCorrectionMode() ? "analysis" : "review";
+  const nextStep = isKeyframeOnlyCorrectionMode() || isRawKeyframeAnalysisMode() ? "analysis" : "review";
   keypointVideoReady = false;
   motionAnalysisReady = false;
   workflowStepOverride = poseRuntime.editMode ? "keypoints" : nextStep;
@@ -773,7 +799,9 @@ function invalidateKeypointVideo(reason = "Keypoint changes need a new review vi
   dom.annotatedVideo.removeAttribute("src");
   dom.annotatedVideo.load();
   syncAnnotatedVideoShell(nextStep);
-  dom.overallNote.textContent = isKeyframeOnlyCorrectionMode()
+  dom.overallNote.textContent = isRawKeyframeAnalysisMode()
+    ? "Run analysis again from manual key frames"
+    : isKeyframeOnlyCorrectionMode()
     ? "Run analysis again from corrected key frames"
     : "Render review video again before final analysis";
   updateWorkflow();
@@ -1036,6 +1064,7 @@ function confirmRoi() {
   window.clearTimeout(roiRuntime.debounceTimer);
   applyRoiControls();
   roiRuntime.confirmed = true;
+  correctionScope = "video";
   poseRuntime.childPose = null;
   poseRuntime.lastDetectedPose = null;
   poseRuntime.trackedPose = null;
@@ -4020,6 +4049,31 @@ async function openFullVideoEditor() {
   dom.childFrame.scrollIntoView({ behavior: "smooth", block: "center" });
 }
 
+function useRawKeyframesForAnalysis() {
+  if (!roiRuntime.confirmed) {
+    dom.roiStatus.textContent = "Confirm the player video before analyzing manual key frames.";
+    return;
+  }
+  if (!keyframes.length) {
+    dom.roiStatus.textContent = "Add or auto-detect key frames first, then analyze from raw key-frame photos.";
+    return;
+  }
+  correctionScope = "keyframesRaw";
+  keypointTrackingReady = false;
+  keypointVideoReady = false;
+  motionAnalysisReady = false;
+  workflowStepOverride = "analysis";
+  if (poseRuntime.editMode) toggleKeypointEdit();
+  dom.editKeyframeAnchorsButton?.classList.remove("active");
+  dom.editKeypointsButton?.classList.remove("active");
+  if (dom.correctionModeStatus) {
+    dom.correctionModeStatus.textContent = "Using selected key frames directly. Keypoint detection and review-video rendering are skipped.";
+  }
+  dom.roiStatus.textContent = "Manual key frames selected for analysis. Run motion analysis when ready.";
+  updateWorkflow();
+  scrollToMotionAnalysis();
+}
+
 function toggleEditPlayback() {
   if (!poseRuntime.editMode) return;
   if (dom.childVideo.paused) {
@@ -5761,13 +5815,16 @@ function packageDiaryEntry(entry) {
     if (typeof frame.image === "string" && frame.image.startsWith("data:")) {
       const extension = imageExtensionFromDataUrl(frame.image);
       const phase = sanitizePackagePathPart(frame.phase || `frame-${index + 1}`);
-      const imagePath = `exports/${base}/keypoint-overlays/${String(index + 1).padStart(2, "0")}-${phase}-keypoints.${extension}`;
+      const rawKeyframe = frame.poseSource === "rawKeyframe" || entry.analysisMode === "raw-keyframes";
+      const imageFolder = rawKeyframe ? "raw-keyframes" : "keypoint-overlays";
+      const imageSuffix = rawKeyframe ? "raw-keyframe" : "keypoints";
+      const imagePath = `exports/${base}/${imageFolder}/${String(index + 1).padStart(2, "0")}-${phase}-${imageSuffix}.${extension}`;
       const rawPath = `exports/${base}/raw-frames/${String(index + 1).padStart(2, "0")}-${phase}-raw.${extension}`;
       const blob = dataUrlToBlob(frame.image);
       files.push({ name: imagePath, blob });
-      files.push({ name: rawPath, blob });
+      if (!rawKeyframe) files.push({ name: rawPath, blob });
       nextFrame.image = `./${imagePath}`;
-      nextFrame.rawFrame = `./${rawPath}`;
+      nextFrame.rawFrame = rawKeyframe ? `./${imagePath}` : `./${rawPath}`;
     }
     return nextFrame;
   });
@@ -5820,6 +5877,7 @@ function keyframeTimeLabel(index) {
 
 function analysisDiaryEntry(options = {}) {
   const stages = buildStrokeStageDetails(latestAnalysis);
+  const rawKeyframeMode = isRawKeyframeAnalysisMode();
   const createdDate = new Date();
   const strokeText = dom.strokeType.options[dom.strokeType.selectedIndex].text;
   const trainingContent = dom.strokeType.value;
@@ -5837,11 +5895,11 @@ function analysisDiaryEntry(options = {}) {
       : null;
     const editedFrame = editedAnchorFrameForStage(stage, representativeFrame);
     const exportedFrameIndex = Number.isFinite(editedFrame) ? editedFrame : frameIndex;
-    const exportedPose = Number.isFinite(exportedFrameIndex)
+    const exportedPose = rawKeyframeMode ? null : Number.isFinite(exportedFrameIndex)
       ? correctionForFrameIndex(exportedFrameIndex)
         || (representativeFrame?.pose ? clonePose(representativeFrame.pose) : null)
       : null;
-    const detections = (stage.metrics || []).map((metric) => ({
+    const detections = rawKeyframeMode ? [] : (stage.metrics || []).map((metric) => ({
       label: metric.label,
       value: String(metric.value),
       status: stage.score >= 80 ? "good" : "issue",
@@ -5862,8 +5920,11 @@ function analysisDiaryEntry(options = {}) {
       aiNote: `${notePrefix}. Coach cue: ${stage.coachComment}`,
       detections,
       image: options.includeImages === false ? null : stage.image,
+      rawFrame: rawKeyframeMode && options.includeImages !== false ? stage.image : null,
       pose: exportedPose ? clonePose(exportedPose) : null,
-      poseSource: Number.isFinite(editedFrame)
+      poseSource: rawKeyframeMode
+        ? "rawKeyframe"
+        : Number.isFinite(editedFrame)
         ? poseCorrectionSources.get(editedFrame) || "userAnchor"
         : representativeFrame?.poseSource || "detected",
     };
@@ -5872,6 +5933,11 @@ function analysisDiaryEntry(options = {}) {
     id: `analysis-${Date.now()}`,
     source: "motion-analysis",
     exportSchemaVersion: 2,
+    analysisMode: rawKeyframeMode
+      ? "raw-keyframes"
+      : isKeyframeOnlyCorrectionMode()
+        ? "corrected-keyframes"
+        : "review-video",
     createdAt: createdDate.toISOString(),
     date: diaryEntryDate(),
     title: `${sessionName} · ${strokeText} analysis`,
@@ -6411,6 +6477,11 @@ async function refreshAnalysisStageImages() {
     const defaultFrame = clampFrameIndex(keyframeToFrameIndex(match), video);
     const editedFrame = editedAnchorFrameForStage(stage, match);
     const frameIndex = Number.isFinite(editedFrame) ? editedFrame : defaultFrame;
+    if (isRawKeyframeAnalysisMode() && match.image) {
+      analysisStageImageCache.set(frameIndex, match.image);
+      analysisStageImageCache.set(stageImageCacheKey(stage), match.image);
+      continue;
+    }
     const time = frameIndex / fps;
     try {
       await seekVideoToTime(video, time, 1800);
@@ -7454,10 +7525,12 @@ async function runAnalysis() {
     dom.roiStatus.textContent = "Detect or select key frames before motion analysis.";
     return;
   }
-  const hasAnalysisInput = keypointVideoReady || isKeyframeOnlyCorrectionReady();
+  const hasAnalysisInput = isAnalysisInputReady();
   if (!hasAnalysisInput) {
     setStatus(isKeyframeOnlyCorrectionMode() ? "Corrections needed" : "Review video needed", "running");
-    dom.roiStatus.textContent = isKeyframeOnlyCorrectionMode()
+    dom.roiStatus.textContent = isRawKeyframeAnalysisMode()
+      ? "Select or auto-detect key frames before running raw key-frame analysis."
+      : isKeyframeOnlyCorrectionMode()
       ? "Save key-frame corrections and generate the smooth track before motion analysis."
       : "Render and review the keypoint video before motion analysis.";
     return;
@@ -7478,7 +7551,9 @@ async function runAnalysis() {
     dom.annotatedVideoStatus.textContent = "Final reviewed video used for motion analysis";
   } else {
     dom.annotatedVideoPanel.classList.add("hidden");
-    dom.annotatedVideoStatus.textContent = "Analysis generated from corrected key frames";
+    dom.annotatedVideoStatus.textContent = isRawKeyframeAnalysisMode()
+      ? "Analysis generated from raw key-frame photos"
+      : "Analysis generated from corrected key frames";
   }
   dom.progressStatus.textContent = "Analysis complete. Save this session to track progress.";
   if (dom.diaryExportStatus) dom.diaryExportStatus.textContent = "Analysis complete. Export this result to the training diary.";
@@ -7507,6 +7582,12 @@ async function runWorkflowPrimaryAction() {
     return;
   }
   if (step === "keypoints") {
+    if (isRawKeyframeAnalysisMode()) {
+      workflowStepOverride = "analysis";
+      updateWorkflow();
+      scrollToMotionAnalysis();
+      return;
+    }
     if (poseRuntime.editMode) {
       toggleKeypointEdit();
       if (isKeyframeOnlyCorrectionReady()) {
@@ -7576,6 +7657,7 @@ dom.editKeypointsButton.addEventListener("click", () => {
   openFullVideoEditor();
 });
 dom.fixKeyframesOnlyButton?.addEventListener("click", openSelectedKeyframeEditor);
+dom.useKeyframesOnlyButton?.addEventListener("click", useRawKeyframesForAnalysis);
 dom.fixFullVideoButton?.addEventListener("click", openFullVideoEditor);
 dom.exportVideoButton.addEventListener("click", exportKeypointVideo);
 dom.replayAnnotatedButton.addEventListener("click", replayAnnotatedVideo);
