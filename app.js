@@ -684,11 +684,12 @@ function updateStepVisibility(step) {
 function updateDraftControls() {
   const hasDraft = Boolean(localStorage.getItem(draftStorageKey));
   dom.loadDraftButton.disabled = !hasDraft;
-  dom.saveDraftButton.disabled = !roiRuntime.confirmed && !keyframes.length && !poseCorrections.size;
+  const canSaveDraft = roiRuntime.confirmed || keyframes.length > 0 || poseCorrections.size > 0 || motionAnalysisReady || Boolean(latestAnalysis);
+  dom.saveDraftButton.disabled = !canSaveDraft;
   if (hasDraft && dom.draftStatus.textContent === "No draft saved yet") {
     dom.draftStatus.textContent = "Draft available";
   }
-  if (!hasDraft && !dom.draftStatus.textContent.includes("Saved")) {
+  if (!hasDraft && !/Saved|Saving|downloaded|failed|full/i.test(dom.draftStatus.textContent)) {
     dom.draftStatus.textContent = "No draft saved yet";
   }
 }
@@ -6170,6 +6171,7 @@ function draftPayload() {
 function saveDraft() {
   const payload = draftPayload();
   const savedLabel = new Date(payload.savedAt).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  dom.draftStatus.textContent = "Saving draft...";
 
   try {
     localStorage.setItem(draftStorageKey, JSON.stringify(payload));
