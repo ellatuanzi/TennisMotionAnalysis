@@ -4071,7 +4071,37 @@ async function openFullVideoEditor() {
   dom.childFrame.scrollIntoView({ behavior: "smooth", block: "center" });
 }
 
-function useRawKeyframesForAnalysis() {
+async function ensureRawFramesForKeyframes() {
+  if (!keyframes.length || !dom.childVideo) return;
+  const missing = keyframes.some((frame) => !frame.rawFrame && !frame.rawImage);
+  if (!missing) return;
+  const video = dom.childVideo;
+  const hasMetadata = await waitForVideoMetadata(video).catch(() => false);
+  if (!hasMetadata) return;
+  const originalTime = video.currentTime || 0;
+  const wasPaused = video.paused;
+  const fps = Math.max(1, Number(dom.fpsInput?.value || 60));
+  video.pause();
+
+  for (const frame of keyframes) {
+    if (frame.rawFrame || frame.rawImage) continue;
+    const frameIndex = clampFrameIndex(keyframeToFrameIndex(frame), video);
+    const time = Number.isFinite(Number(frame.time)) ? Number(frame.time) : frameIndex / fps;
+    try {
+      await seekVideoToTime(video, time, 1000);
+      await nextPaint();
+      frame.rawFrame = captureRawKeyframeImage() || frame.image || "";
+    } catch (error) {
+      console.warn("Could not capture raw keyframe", frame.phase, error);
+      frame.rawFrame = frame.image || "";
+    }
+  }
+
+  await seekVideoToTime(video, originalTime, 1000).catch(() => {});
+  if (!wasPaused) video.play().catch(() => {});
+}
+
+async function useRawKeyframesForAnalysis() {
   if (!roiRuntime.confirmed) {
     dom.roiStatus.textContent = "Confirm the player video before analyzing manual key frames.";
     return;
@@ -4080,6 +4110,8 @@ function useRawKeyframesForAnalysis() {
     dom.roiStatus.textContent = "Add or auto-detect key frames first, then analyze from raw key-frame photos.";
     return;
   }
+  dom.roiStatus.textContent = "Preparing clean key-frame photos for analysis...";
+  await ensureRawFramesForKeyframes();
   correctionScope = "keyframesRaw";
   keypointTrackingReady = false;
   keypointVideoReady = false;
@@ -4828,6 +4860,14 @@ function editedAnchorFrameForStage(stage, match = keyframeForStage(stage)) {
 
 function keyframeImageForStage(stage) {
   const match = keyframeForStage(stage);
+  if (isRawKeyframeAnalysisMode()) {
+    return match?.rawFrame
+      || match?.rawImage
+      || match?.image
+      || fallbackRawStageSnapshotForStage(stage)
+      || fallbackStageSnapshotForStage(stage)
+      || "";
+  }
   const defaultFrame = match ? clampFrameIndex(keyframeToFrameIndex(match), dom.childVideo) : null;
   const editedFrame = editedAnchorFrameForStage(stage, match);
   const displayFrame = editedFrame ?? defaultFrame;
@@ -5923,6 +5963,9 @@ function analysisDiaryEntry(options = {}) {
   const lowestStage = stages.reduce((weakest, item) => (item.score < weakest.score ? item : weakest), stages[0]);
   const keyframeEntries = stages.map((stage, index) => {
     const representativeFrame = keyframeForStage(stage);
+    const exportedImage = rawKeyframeMode
+      ? representativeFrame?.rawFrame || representativeFrame?.rawImage || stage.image
+      : stage.image;
     const representativeIndex = representativeFrame ? keyframes.indexOf(representativeFrame) : index;
     const frameIndex = representativeFrame
       ? clampFrameIndex(keyframeToFrameIndex(representativeFrame), dom.childVideo)
@@ -5954,8 +5997,8 @@ function analysisDiaryEntry(options = {}) {
       points: `${stage.quality}. ${metrics || stage.metric}. Focus: ${stage.next}`,
       aiNote: `${notePrefix}. Coach cue: ${stage.coachComment}`,
       detections,
-      image: options.includeImages === false ? null : stage.image,
-      rawFrame: rawKeyframeMode && options.includeImages !== false ? stage.image : null,
+      image: options.includeImages === false ? null : exportedImage,
+      rawFrame: rawKeyframeMode && options.includeImages !== false ? exportedImage : representativeFrame?.rawFrame || null,
       pose: exportedPose ? clonePose(exportedPose) : null,
       poseSource: rawKeyframeMode
         ? "rawKeyframe"
@@ -6814,6 +6857,9 @@ async function fallbackKeyframeCardsForStages(frames) {
       image: image
         || fallbackRawStageSnapshotForStage({ phase: frame.phase })
         || fallbackStageSnapshotForStage({ phase: frame.phase }),
+      rawFrame: image
+        || fallbackRawStageSnapshotForStage({ phase: frame.phase })
+        || fallbackStageSnapshotForStage({ phase: frame.phase }),
       pose,
       poseSource: "fallbackTemplate",
     });
@@ -7038,11 +7084,12 @@ async function generateKeyframes(data) {
       await nextPaint();
       const detectedPose = snapshotDetectedPoseForKeyframe(frameIndex);
       const pose = detectedPose || baselinePoseForFrame(frameIndex);
+      const rawFrame = captureRawKeyframeImage() || fallbackRawStageSnapshotForStage({ phase: frame.phase });
       // Never paint the synthetic baseline pose over a real frame. It is only
       // an editor starting point and has no visual-detection confidence.
       const image = detectedPose
         ? captureAnalysisFrame(detectedPose)
-        : captureRawKeyframeImage() || fallbackRawStageSnapshotForStage({ phase: frame.phase });
+        : rawFrame;
       // Keep a frozen pose + image for this stage. Do not let later playback,
       // smoothing, or editor state redraw every card from the same current frame.
       cards.push({
@@ -7050,6 +7097,7 @@ async function generateKeyframes(data) {
         time: actualTime,
         frameIndex,
         image,
+        rawFrame,
         pose,
         poseSource: detectedPose ? "mediaPipe" : "fallbackTemplate",
       });
@@ -7164,15 +7212,17 @@ async function captureCurrentKeyframe(phase = currentPhaseName()) {
   const frameIndex = currentFrameIndex(dom.childVideo);
   const detectedPose = snapshotDetectedPoseForKeyframe(frameIndex);
   const pose = detectedPose || baselinePoseForFrame(frameIndex);
+  const rawFrame = captureRawKeyframeImage();
   const image = detectedPose
     ? captureAnalysisFrame(detectedPose)
-    : captureRawKeyframeImage();
+    : rawFrame;
   return {
     phase,
     time: dom.childVideo.currentTime || 0,
     frameIndex,
     note: `Manually selected frame at ${(dom.childVideo.currentTime || 0).toFixed(2)}s.`,
     image,
+    rawFrame,
     pose,
     poseSource: detectedPose ? "mediaPipe" : "fallbackTemplate",
   };
