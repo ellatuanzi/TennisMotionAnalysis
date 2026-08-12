@@ -2034,11 +2034,33 @@ canvas {
 }
 
 .keyframe-card {
+  position: relative;
   overflow: hidden;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #f8faf8;
   cursor: pointer;
+}
+
+.keyframe-card-delete {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 2;
+  min-height: 28px;
+  padding: 0 10px;
+  border: 1px solid rgba(195, 75, 43, 0.25);
+  border-radius: 999px;
+  background: rgba(255, 245, 241, 0.95);
+  color: var(--orange);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 900;
+  box-shadow: 0 8px 18px rgba(12, 18, 15, 0.12);
+}
+
+.keyframe-card-delete:hover {
+  background: #ffe6dc;
 }
 
 .keyframe-card.selected {

@@ -7090,6 +7090,7 @@ function renderKeyframes() {
         const phase = normalizeKeyframeLabel(frame.phase) || "Custom";
         return `
         <article class="keyframe-card ${index === selectedKeyframeIndex ? "selected" : ""} ${needsCorrection ? "anchor-suggested" : anchorTypeClass(source)}" data-index="${index}">
+          <button class="keyframe-card-delete" type="button" data-delete-keyframe="${index}" aria-label="Delete ${escapeHtml(phase)} key frame">Delete</button>
           <img src="${escapeHtml(frame.image)}" alt="${escapeHtml(phase)} key frame" data-expand="${index}" />
           <div class="keyframe-body">
             <div class="keyframe-title-row">
@@ -7202,6 +7203,7 @@ async function updateSelectedKeyframe() {
 
 function deleteSelectedKeyframe() {
   if (!keyframes.length) return;
+  const removedPhase = normalizeKeyframeLabel(keyframes[selectedKeyframeIndex]?.phase) || "Selected";
   const removedFrame = keyframeToFrameIndex(keyframes[selectedKeyframeIndex]);
   keyframes.splice(selectedKeyframeIndex, 1);
   if (poseCorrectionSources.get(removedFrame) === "defaultAnchor") {
@@ -7212,8 +7214,15 @@ function deleteSelectedKeyframe() {
   keypointTrackingReady = false;
   scheduleAutoSmoothTrack("Anchor frame deleted. Updating nearby tracked result.", removedFrame);
   renderKeyframes();
+  dom.keyframeStatus.textContent = `${removedPhase} key frame deleted.`;
   invalidateKeypointVideo("Key frames changed. Render a new review video.");
   updateWorkflow();
+}
+
+function deleteKeyframeAt(index) {
+  if (!keyframes.length) return;
+  selectedKeyframeIndex = clamp(index, 0, Math.max(0, keyframes.length - 1));
+  deleteSelectedKeyframe();
 }
 
 function selectKeyframe(index) {
@@ -7829,6 +7838,13 @@ dom.keyframeLabelInput?.addEventListener("keydown", (event) => {
 });
 dom.closeFrameModal.addEventListener("click", () => dom.frameModal.close());
 dom.keyframeGrid.addEventListener("click", (event) => {
+  const deleteButton = event.target.closest("[data-delete-keyframe]");
+  if (deleteButton) {
+    event.preventDefault();
+    event.stopPropagation();
+    deleteKeyframeAt(Number(deleteButton.dataset.deleteKeyframe));
+    return;
+  }
   const card = event.target.closest(".keyframe-card[data-index]");
   if (card) {
     selectKeyframe(Number(card.dataset.index));
