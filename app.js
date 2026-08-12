@@ -4763,10 +4763,18 @@ function normalizeStageName(value = "") {
 
 function keyframeForStage(stage) {
   const stageKey = normalizeStageName(stage.name || stage.phase || stage.id);
+  const stageShortKey = normalizeStageName(stageShortName(stage.name || stage.phase || stage.id));
+  const stageIndex = strokeStageTemplate().findIndex((item) => item.id === stage.id);
   return keyframes.find((frame) => frame.phaseId === stage.id)
     || keyframes.find((frame) => normalizeStageName(frame.phase) === stageKey)
+    || keyframes.find((frame) => normalizeStageName(frame.phase) === stageShortKey)
     || keyframes.find((frame) => normalizeStageName(frame.phase).includes(stageKey))
-    || keyframes.find((frame) => stageKey.includes(normalizeStageName(frame.phase)));
+    || keyframes.find((frame) => normalizeStageName(frame.phase).includes(stageShortKey))
+    || keyframes.find((frame) => stageKey.includes(normalizeStageName(frame.phase)))
+    || keyframes.find((frame) => stageShortKey.includes(normalizeStageName(frame.phase)))
+    || (stageIndex >= 0 ? keyframes[Math.min(stageIndex, keyframes.length - 1)] : null)
+    || keyframes[keyframes.length - 1]
+    || null;
 }
 
 function stageImageCacheKey(stage) {
@@ -4828,6 +4836,8 @@ function keyframeImageForStage(stage) {
     return frameImage
       || stageImage
       || match?.image
+      || nearestKeyframeImageForFrame(displayFrame)
+      || keyframes[keyframes.length - 1]?.image
       || fallbackStageSnapshotForStage(stage)
       || "";
   }
@@ -4835,6 +4845,8 @@ function keyframeImageForStage(stage) {
   return match?.image
     || frameImage
     || stageImage
+    || (Number.isFinite(displayFrame) ? nearestKeyframeImageForFrame(displayFrame) : null)
+    || keyframes[keyframes.length - 1]?.image
     || fallbackStageSnapshotForStage(stage)
     || "";
 }
