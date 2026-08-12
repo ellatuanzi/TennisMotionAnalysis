@@ -22,6 +22,8 @@ const dom = {
   workflowNextButton: document.querySelector("#workflowNextButton"),
   saveDraftButton: document.querySelector("#saveDraftButton"),
   loadDraftButton: document.querySelector("#loadDraftButton"),
+  importDraftButton: document.querySelector("#importDraftButton"),
+  importDraftInput: document.querySelector("#importDraftInput"),
   draftStatus: document.querySelector("#draftStatus"),
   analyzeButton: document.querySelector("#analyzeButton"),
   pipelineStatus: document.querySelector("#pipelineStatus"),
@@ -40,6 +42,7 @@ const dom = {
   replayAnnotatedButton: document.querySelector("#replayAnnotatedButton"),
   pauseAnnotatedButton: document.querySelector("#pauseAnnotatedButton"),
   editReviewFrameButton: document.querySelector("#editReviewFrameButton"),
+  downloadCorrectionsButton: document.querySelector("#downloadCorrectionsButton"),
   reviewFrameScrubber: document.querySelector("#reviewFrameScrubber"),
   reviewFrameLabel: document.querySelector("#reviewFrameLabel"),
   reviewFrameCanvas: document.querySelector("#reviewFrameCanvas"),
@@ -123,8 +126,18 @@ const dom = {
   addKeyframeButton: document.querySelector("#addKeyframeButton"),
   updateKeyframeButton: document.querySelector("#updateKeyframeButton"),
   deleteKeyframeButton: document.querySelector("#deleteKeyframeButton"),
+  skipFrameEditingButton: document.querySelector("#skipFrameEditingButton"),
+  keyframeLabelEditor: document.querySelector("#keyframeLabelEditor"),
+  keyframeLabelInput: document.querySelector("#keyframeLabelInput"),
+  saveKeyframeLabelButton: document.querySelector("#saveKeyframeLabelButton"),
+  keyframePickerScrubber: document.querySelector("#keyframePickerScrubber"),
+  keyframePickerCanvas: document.querySelector("#keyframePickerCanvas"),
+  keyframePickerLabel: document.querySelector("#keyframePickerLabel"),
+  previousKeyframePickerButton: document.querySelector("#previousKeyframePickerButton"),
+  nextKeyframePickerButton: document.querySelector("#nextKeyframePickerButton"),
   correctionChoice: document.querySelector("#correctionChoice"),
   fixKeyframesOnlyButton: document.querySelector("#fixKeyframesOnlyButton"),
+  useKeyframesOnlyButton: document.querySelector("#useKeyframesOnlyButton"),
   fixFullVideoButton: document.querySelector("#fixFullVideoButton"),
   correctionModeStatus: document.querySelector("#correctionModeStatus"),
   frameModal: document.querySelector("#frameModal"),
@@ -163,6 +176,22 @@ const phaseLabels = {
   contact: "Contact",
   follow: "Follow",
 };
+
+function escapeHtml(value = "") {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function normalizeKeyframeLabel(value = "") {
+  return String(value)
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 64);
+}
 
 const defaultCoachingNotes = `ATTICUS CAI -- Serve Progression checkpoints:
 - Stage 1 Setup: balanced platform stance, quiet head, relaxed hands, and a repeatable starting rhythm.
@@ -436,6 +465,15 @@ function strokeStageTemplate(stroke = dom.strokeType?.value) {
   return serveStageTemplate;
 }
 
+function analysisStrokeType(data = latestAnalysis) {
+  return data?.strokeType || dom.strokeType?.value || "serve";
+}
+
+function strokeDisplayText(stroke = analysisStrokeType()) {
+  const option = Array.from(dom.strokeType?.options || []).find((item) => item.value === stroke);
+  return option?.text || stroke.charAt(0).toUpperCase() + stroke.slice(1);
+}
+
 let latestReport = "";
 let animationFrameId = null;
 let latestAnalysis = null;
@@ -535,6 +573,7 @@ function currentWorkflowStep() {
   }
   if (workflowStepOverride && canNavigateToWorkflowStep(workflowStepOverride)) return workflowStepOverride;
   if (workflowStepOverride && !canNavigateToWorkflowStep(workflowStepOverride)) workflowStepOverride = null;
+  if (isRawKeyframeAnalysisReady()) return "analysis";
   if (!poseCorrections.size) return "keypoints";
   if (!keypointTrackingReady) return "keypoints";
   if (isKeyframeOnlyCorrectionReady()) return "analysis";
@@ -546,12 +585,26 @@ function isKeyframeOnlyCorrectionMode() {
   return correctionScope === "keyframes";
 }
 
+function isRawKeyframeAnalysisMode() {
+  return correctionScope === "keyframesRaw";
+}
+
 function isKeyframeOnlyCorrectionReady() {
   return isKeyframeOnlyCorrectionMode()
     && roiRuntime.confirmed
     && keyframes.length > 0
     && poseCorrections.size > 0
     && keypointTrackingReady;
+}
+
+function isRawKeyframeAnalysisReady() {
+  return isRawKeyframeAnalysisMode()
+    && roiRuntime.confirmed
+    && keyframes.length > 0;
+}
+
+function isAnalysisInputReady() {
+  return keypointVideoReady || isKeyframeOnlyCorrectionReady() || isRawKeyframeAnalysisReady();
 }
 
 function scrollToMotionAnalysis() {
@@ -564,9 +617,14 @@ function scrollToMotionAnalysis() {
 
 function workflowHintText(step) {
   if (step === "roi") return "Upload a player video, or use the default PoC video already loaded, then confirm the player crop before detecting keypoints.";
-  if (step === "frames") return "Choose the important swing frames. Use Auto Detect first, then add, update, or delete frames from the video.";
+  if (step === "frames") return "Choose the important swing frames. Use Auto Detect first, then add, update, delete, or skip frame editing and analyze from the selected key frames.";
   if (step === "keypoints") return "Step 3: choose Edit Key Frames Only to fix selected anchors, or Edit Full Video for frame-by-frame corrections. Save anchors before smoothing.";
   if (step === "review") return "Render the review video from the smoothed tracked frames. If it looks wrong, return to Frame Corrections and smooth again.";
+  if (isRawKeyframeAnalysisMode()) {
+    return motionAnalysisReady
+      ? "Motion analysis is complete from manually selected key frames."
+      : "Manual key frames are ready. Run motion analysis without keypoint detection or a review video.";
+  }
   if (isKeyframeOnlyCorrectionMode() && !keypointVideoReady) {
     return motionAnalysisReady
       ? "Motion analysis is complete from corrected key frames. Return to Frame Corrections if the anchors need adjustment."
@@ -599,7 +657,7 @@ function syncAnnotatedVideoShell(step = currentWorkflowStep()) {
   dom.annotatedVideoPanel.classList.toggle("review-video-empty", !hasVideo);
   dom.annotatedVideoPanel.classList.toggle("review-video-rendering", reviewVideoRendering);
   dom.annotatedVideoPanel.classList.toggle("has-review-video", hasVideo && !reviewVideoRendering);
-  if (!hasVideo && !reviewVideoRendering && (step === "review" || (step === "analysis" && !isKeyframeOnlyCorrectionMode())) && dom.childVideo?.src && roiRuntime.confirmed) {
+  if (!hasVideo && !reviewVideoRendering && (step === "review" || (step === "analysis" && !isKeyframeOnlyCorrectionMode() && !isRawKeyframeAnalysisMode())) && dom.childVideo?.src && roiRuntime.confirmed) {
     setupReviewFramePreview(currentFrameIndex(dom.childVideo));
   }
 }
@@ -617,11 +675,13 @@ function updateStepVisibility(step) {
     setPanelVisible(panel, visibleSteps.includes(step));
   });
   const showAnnotatedVideoPanel = step === "review"
-    || (step === "analysis" && (!isKeyframeOnlyCorrectionMode() || keypointVideoReady));
+    || (step === "analysis" && ((!isKeyframeOnlyCorrectionMode() && !isRawKeyframeAnalysisMode()) || keypointVideoReady));
   if (showAnnotatedVideoPanel) {
     dom.annotatedVideoPanel.classList.remove("hidden");
     if (!keypointVideoReady && dom.annotatedVideoStatus) {
-      dom.annotatedVideoStatus.textContent = isKeyframeOnlyCorrectionMode()
+      dom.annotatedVideoStatus.textContent = isRawKeyframeAnalysisMode()
+        ? "Skipped for raw key-frame analysis"
+        : isKeyframeOnlyCorrectionMode()
         ? "Skipped for key-frame-only analysis"
         : "Render video to review detection";
     }
@@ -634,11 +694,12 @@ function updateStepVisibility(step) {
 function updateDraftControls() {
   const hasDraft = Boolean(localStorage.getItem(draftStorageKey));
   dom.loadDraftButton.disabled = !hasDraft;
-  dom.saveDraftButton.disabled = !roiRuntime.confirmed && !keyframes.length && !poseCorrections.size;
+  const canSaveDraft = roiRuntime.confirmed || keyframes.length > 0 || poseCorrections.size > 0 || motionAnalysisReady || Boolean(latestAnalysis);
+  dom.saveDraftButton.disabled = !canSaveDraft;
   if (hasDraft && dom.draftStatus.textContent === "No draft saved yet") {
     dom.draftStatus.textContent = "Draft available";
   }
-  if (!hasDraft && !dom.draftStatus.textContent.includes("Saved")) {
+  if (!hasDraft && !/Saved|Saving|downloaded|failed|full/i.test(dom.draftStatus.textContent)) {
     dom.draftStatus.textContent = "No draft saved yet";
   }
 }
@@ -660,21 +721,26 @@ function updateWorkflow() {
   dom.addKeyframeButton.disabled = !roiRuntime.confirmed;
   dom.updateKeyframeButton.disabled = !roiRuntime.confirmed || !keyframes.length;
   dom.deleteKeyframeButton.disabled = !roiRuntime.confirmed || !keyframes.length;
+  if (dom.skipFrameEditingButton) dom.skipFrameEditingButton.disabled = !roiRuntime.confirmed || !keyframes.length;
   dom.editKeypointsButton.disabled = !roiRuntime.confirmed || !keyframes.length;
   if (dom.editKeyframeAnchorsButton) dom.editKeyframeAnchorsButton.disabled = !roiRuntime.confirmed || !keyframes.length;
   dom.exportVideoButton.disabled = !roiRuntime.confirmed || !keyframes.length || !poseCorrections.size || !keypointTrackingReady;
+  if (dom.downloadCorrectionsButton) dom.downloadCorrectionsButton.disabled = !poseCorrections.size;
   if (dom.correctionChoice) {
     const showCorrectionChoice = keyframes.length > 0 && (step === "frames" || step === "keypoints");
     dom.correctionChoice.classList.toggle("hidden", !showCorrectionChoice);
   }
   if (dom.fixKeyframesOnlyButton) dom.fixKeyframesOnlyButton.disabled = !roiRuntime.confirmed || !keyframes.length;
+  if (dom.useKeyframesOnlyButton) dom.useKeyframesOnlyButton.disabled = !roiRuntime.confirmed || !keyframes.length;
   if (dom.fixFullVideoButton) dom.fixFullVideoButton.disabled = !roiRuntime.confirmed || !keyframes.length;
   if (dom.correctionModeStatus) {
     if (keyframes.length) {
       dom.correctionModeStatus.textContent = step === "keypoints"
         ? poseRuntime.editMode
           ? "Edit the selected key frame, save it as an anchor, then choose another card if needed."
-          : "Choose Edit Key Frames Only, or click any key-frame card to edit that anchor."
+          : isRawKeyframeAnalysisMode()
+            ? "Raw key-frame analysis selected. Continue directly to motion analysis, or choose another correction path."
+            : "Choose Edit Key Frames Only, Use Key Frames Without Keypoints, or click any key-frame card to edit that anchor."
         : "Choose a correction path before Step 3.";
     } else {
       dom.correctionModeStatus.textContent = "Choose a path after key frames are ready.";
@@ -720,7 +786,7 @@ function updateWorkflow() {
   } else if (step === "review") {
     setPrimaryWorkflowAction("Render Review Video", !poseCorrections.size);
   } else {
-    const analysisInputReady = keypointVideoReady || isKeyframeOnlyCorrectionReady();
+    const analysisInputReady = isAnalysisInputReady();
     setPrimaryWorkflowAction(motionAnalysisReady ? "Re-analyze Motion" : "Analyze Motion", !analysisInputReady);
   }
   updateDraftControls();
@@ -730,8 +796,8 @@ function canNavigateToWorkflowStep(step) {
   if (step === "roi") return true;
   if (step === "frames") return roiRuntime.confirmed;
   if (step === "keypoints") return roiRuntime.confirmed && keyframes.length > 0;
-  if (step === "review") return !isKeyframeOnlyCorrectionMode() && roiRuntime.confirmed && keyframes.length > 0 && poseCorrections.size > 0 && keypointTrackingReady;
-  if (step === "analysis") return keypointVideoReady || isKeyframeOnlyCorrectionReady();
+  if (step === "review") return !isKeyframeOnlyCorrectionMode() && !isRawKeyframeAnalysisMode() && roiRuntime.confirmed && keyframes.length > 0 && poseCorrections.size > 0 && keypointTrackingReady;
+  if (step === "analysis") return isAnalysisInputReady();
   return false;
 }
 
@@ -756,7 +822,7 @@ function goToWorkflowStep(step) {
 
 function invalidateKeypointVideo(reason = "Keypoint changes need a new review video.") {
   if (!keypointVideoReady && !motionAnalysisReady) return;
-  const nextStep = isKeyframeOnlyCorrectionMode() ? "analysis" : "review";
+  const nextStep = isKeyframeOnlyCorrectionMode() || isRawKeyframeAnalysisMode() ? "analysis" : "review";
   keypointVideoReady = false;
   motionAnalysisReady = false;
   workflowStepOverride = poseRuntime.editMode ? "keypoints" : nextStep;
@@ -764,7 +830,9 @@ function invalidateKeypointVideo(reason = "Keypoint changes need a new review vi
   dom.annotatedVideo.removeAttribute("src");
   dom.annotatedVideo.load();
   syncAnnotatedVideoShell(nextStep);
-  dom.overallNote.textContent = isKeyframeOnlyCorrectionMode()
+  dom.overallNote.textContent = isRawKeyframeAnalysisMode()
+    ? "Run analysis again from manual key frames"
+    : isKeyframeOnlyCorrectionMode()
     ? "Run analysis again from corrected key frames"
     : "Render review video again before final analysis";
   updateWorkflow();
@@ -981,7 +1049,9 @@ function resetRoiConfirmation(message = "Default PoC video is loaded. Adjust cro
   dom.keypointEditor.classList.remove("active");
   dom.childFrame.classList.remove("editing-keypoints");
   dom.editKeypointsButton.textContent = "Edit Full Video";
-  dom.downloadVideoLink.classList.add("hidden");
+  dom.downloadVideoLink.classList.add("disabled");
+  dom.downloadVideoLink.setAttribute("aria-disabled", "true");
+  dom.downloadVideoLink.removeAttribute("href");
   dom.annotatedVideoPanel.classList.add("hidden");
   dom.annotatedVideo.removeAttribute("src");
   dom.annotatedVideo.load();
@@ -1025,6 +1095,7 @@ function confirmRoi() {
   window.clearTimeout(roiRuntime.debounceTimer);
   applyRoiControls();
   roiRuntime.confirmed = true;
+  correctionScope = "video";
   poseRuntime.childPose = null;
   poseRuntime.lastDetectedPose = null;
   poseRuntime.trackedPose = null;
@@ -3570,6 +3641,47 @@ function syncFrameScrubber() {
   updateEditPlaybackButton();
 }
 
+function syncKeyframePicker() {
+  if (!dom.keyframePickerScrubber || !dom.childVideo) return;
+  const duration = Number.isFinite(dom.childVideo.duration) ? dom.childVideo.duration : 0;
+  const time = clamp(Number(dom.childVideo.currentTime || 0), 0, Math.max(0, duration));
+  dom.keyframePickerScrubber.max = String(Math.max(0, duration));
+  dom.keyframePickerScrubber.value = String(time);
+  const frame = frameIndexForTime(time);
+  if (dom.keyframePickerLabel) dom.keyframePickerLabel.textContent = `${time.toFixed(2)}s · Frame ${frame}`;
+  renderKeyframePickerPreview();
+}
+
+function renderKeyframePickerPreview() {
+  const video = dom.childVideo;
+  const canvas = dom.keyframePickerCanvas;
+  if (!canvas || !video || video.readyState < 2 || !video.videoWidth || !video.videoHeight) return;
+  const crop = getPlayerCropSource(video);
+  const width = 720;
+  const height = Math.max(1, Math.round(width * crop.height / Math.max(1, crop.width)));
+  if (canvas.width !== width) canvas.width = width;
+  if (canvas.height !== height) canvas.height = height;
+  const context = canvas.getContext("2d");
+  context.clearRect(0, 0, width, height);
+  context.drawImage(video, crop.x, crop.y, crop.width, crop.height, 0, 0, width, height);
+}
+
+async function seekKeyframePickerTo(time) {
+  const duration = Number.isFinite(dom.childVideo.duration) ? dom.childVideo.duration : 0;
+  const target = clamp(Number(time || 0), 0, Math.max(0, duration));
+  dom.childVideo.pause();
+  await seekVideoToTime(dom.childVideo, target, 1200).catch(() => {
+    dom.childVideo.currentTime = target;
+  });
+  syncKeyframePicker();
+  drawPoseLoop();
+}
+
+function stepKeyframePicker(direction) {
+  const fps = Math.max(1, Number(dom.fpsInput?.value || 60));
+  seekKeyframePickerTo(Number(dom.childVideo.currentTime || 0) + direction / fps);
+}
+
 function displayedEditorFrame() {
   if (poseRuntime.editMode && Number.isFinite(Number(poseRuntime.editorFrame))) {
     return currentEditorFrameIndex();
@@ -3966,6 +4078,73 @@ async function openFullVideoEditor() {
     dom.correctionModeStatus.textContent = "Full-video correction: choose any frame, save anchors, then generate the smooth track.";
   }
   dom.childFrame.scrollIntoView({ behavior: "smooth", block: "center" });
+}
+
+async function ensureRawFramesForKeyframes() {
+  if (!keyframes.length || !dom.childVideo) return;
+  keyframes.forEach((frame) => {
+    if (!frame.rawFrame && !frame.rawImage && frame.image) {
+      frame.rawFrame = frame.image;
+    }
+  });
+  const missing = keyframes.some((frame) => !frame.rawFrame && !frame.rawImage);
+  if (!missing) return;
+  const video = dom.childVideo;
+  const hasMetadata = await waitForVideoMetadata(video).catch(() => false);
+  if (!hasMetadata) return;
+  const originalTime = video.currentTime || 0;
+  const wasPaused = video.paused;
+  const fps = Math.max(1, Number(dom.fpsInput?.value || 60));
+  video.pause();
+
+  for (const frame of keyframes) {
+    if (frame.rawFrame || frame.rawImage) continue;
+    const frameIndex = clampFrameIndex(keyframeToFrameIndex(frame), video);
+    const time = Number.isFinite(Number(frame.time)) ? Number(frame.time) : frameIndex / fps;
+    try {
+      await seekVideoToTime(video, time, 1000);
+      const actualFrame = currentFrameIndex(video);
+      const frameTolerance = Math.max(1, Math.round(fps * 0.05));
+      if (Math.abs(actualFrame - frameIndex) > frameTolerance) {
+        throw new Error(`Expected frame ${frameIndex}, got ${actualFrame}`);
+      }
+      await nextPaint();
+      frame.rawFrame = captureRawKeyframeImage() || frame.image || "";
+    } catch (error) {
+      console.warn("Could not capture raw keyframe", frame.phase, error);
+      frame.rawFrame = frame.image || "";
+    }
+  }
+
+  await seekVideoToTime(video, originalTime, 1000).catch(() => {});
+  if (!wasPaused) video.play().catch(() => {});
+}
+
+async function useRawKeyframesForAnalysis() {
+  if (!roiRuntime.confirmed) {
+    dom.roiStatus.textContent = "Confirm the player video before analyzing manual key frames.";
+    return;
+  }
+  if (!keyframes.length) {
+    dom.roiStatus.textContent = "Add or auto-detect key frames first, then analyze from raw key-frame photos.";
+    return;
+  }
+  dom.roiStatus.textContent = "Preparing clean key-frame photos for analysis...";
+  await ensureRawFramesForKeyframes();
+  correctionScope = "keyframesRaw";
+  keypointTrackingReady = false;
+  keypointVideoReady = false;
+  motionAnalysisReady = false;
+  workflowStepOverride = "analysis";
+  if (poseRuntime.editMode) toggleKeypointEdit();
+  dom.editKeyframeAnchorsButton?.classList.remove("active");
+  dom.editKeypointsButton?.classList.remove("active");
+  if (dom.correctionModeStatus) {
+    dom.correctionModeStatus.textContent = "Using selected key frames directly. Keypoint detection and review-video rendering are skipped.";
+  }
+  dom.roiStatus.textContent = "Manual key frames selected for analysis. Run motion analysis when ready.";
+  updateWorkflow();
+  scrollToMotionAnalysis();
 }
 
 function toggleEditPlayback() {
@@ -4537,11 +4716,12 @@ function ballTrackingMetrics() {
 }
 
 function analyzeMotion() {
+  const strokeType = dom.strokeType.value;
   const age = Number(dom.playerAge.value || 10);
   const fps = Number(dom.fpsInput.value || 60);
   const distance = Number(dom.courtDistance.value || 6.4);
   const durationFactor = clamp((reliableVideoDuration(dom.childVideo) || 2.2) / 2.8, 0.75, 1.25);
-  const strokeBias = { forehand: 4, backhand: 1, serve: -2, volley: 6 }[dom.strokeType.value] || 0;
+  const strokeBias = { forehand: 4, backhand: 1, serve: -2, volley: 6 }[strokeType] || 0;
 
   const base = clamp(78 + strokeBias - Math.abs(age - 11) * 1.1 + (fps - 60) * 0.025, 64, 94);
   const score = Math.round(base - Math.abs(durationFactor - 1) * 8);
@@ -4555,7 +4735,7 @@ function analyzeMotion() {
   const trackMetrics = trajectorySummary();
   const stageScores = {
     setup: Math.round(clamp(score + 5, 50, 98)),
-    toss: Math.round(clamp(score - (dom.strokeType.value === "serve" ? 4 : 1), 48, 96)),
+    toss: Math.round(clamp(score - (strokeType === "serve" ? 4 : 1), 48, 96)),
     load: Math.round(clamp(score + (shoulderHip - 38) * 0.35, 48, 96)),
     drop: Math.round(clamp(score - 3 + (racketSpeed - 80) * 0.08, 48, 96)),
     acceleration: Math.round(clamp(score - 2 + (racketSpeed - 85) * 0.08, 48, 96)),
@@ -4563,14 +4743,14 @@ function analyzeMotion() {
     deceleration: Math.round(clamp(score - 4 + (knee < 130 ? 2 : -3), 48, 96)),
     finish: Math.round(clamp(score - 2 + (knee < 132 ? 3 : -2), 48, 96)),
   };
-  if (dom.strokeType.value === "forehand") {
+  if (strokeType === "forehand") {
     stageScores.ready = Math.round(clamp(score + 4, 50, 98));
     stageScores.unitturn = Math.round(clamp(score + (shoulderHip - 34) * 0.32, 48, 97));
     stageScores.forward = Math.round(clamp(score - 2 + (racketSpeed - 78) * 0.08, 48, 97));
     stageScores.contact = Math.round(clamp(score + (Number(contactHeight) - 0.56) * 55, 48, 97));
     stageScores.finish = Math.round(clamp(score - 1 + (knee < 134 ? 2 : -2), 48, 96));
   }
-  if (dom.strokeType.value === "backhand") {
+  if (strokeType === "backhand") {
     stageScores.ready = Math.round(clamp(score + 3, 50, 98));
     stageScores.unitturn = Math.round(clamp(score + (shoulderHip - 34) * 0.3, 48, 97));
     stageScores.racketset = Math.round(clamp(score - 1 + (racketSpeed - 78) * 0.06, 48, 97));
@@ -4582,6 +4762,7 @@ function analyzeMotion() {
   }
 
   return {
+    strokeType,
     score,
     racketSpeed,
     ballSpeed,
@@ -4638,10 +4819,18 @@ function normalizeStageName(value = "") {
 
 function keyframeForStage(stage) {
   const stageKey = normalizeStageName(stage.name || stage.phase || stage.id);
+  const stageShortKey = normalizeStageName(stageShortName(stage.name || stage.phase || stage.id));
+  const stageIndex = strokeStageTemplate(analysisStrokeType()).findIndex((item) => item.id === stage.id);
   return keyframes.find((frame) => frame.phaseId === stage.id)
     || keyframes.find((frame) => normalizeStageName(frame.phase) === stageKey)
+    || keyframes.find((frame) => normalizeStageName(frame.phase) === stageShortKey)
     || keyframes.find((frame) => normalizeStageName(frame.phase).includes(stageKey))
-    || keyframes.find((frame) => stageKey.includes(normalizeStageName(frame.phase)));
+    || keyframes.find((frame) => normalizeStageName(frame.phase).includes(stageShortKey))
+    || keyframes.find((frame) => stageKey.includes(normalizeStageName(frame.phase)))
+    || keyframes.find((frame) => stageShortKey.includes(normalizeStageName(frame.phase)))
+    || (stageIndex >= 0 ? keyframes[Math.min(stageIndex, keyframes.length - 1)] : null)
+    || keyframes[keyframes.length - 1]
+    || null;
 }
 
 function stageImageCacheKey(stage) {
@@ -4692,6 +4881,14 @@ function editedAnchorFrameForStage(stage, match = keyframeForStage(stage)) {
 
 function keyframeImageForStage(stage) {
   const match = keyframeForStage(stage);
+  if (isRawKeyframeAnalysisMode()) {
+    return match?.rawFrame
+      || match?.rawImage
+      || match?.image
+      || fallbackRawStageSnapshotForStage(stage)
+      || fallbackStageSnapshotForStage(stage)
+      || "";
+  }
   const defaultFrame = match ? clampFrameIndex(keyframeToFrameIndex(match), dom.childVideo) : null;
   const editedFrame = editedAnchorFrameForStage(stage, match);
   const displayFrame = editedFrame ?? defaultFrame;
@@ -4703,6 +4900,8 @@ function keyframeImageForStage(stage) {
     return frameImage
       || stageImage
       || match?.image
+      || nearestKeyframeImageForFrame(displayFrame)
+      || keyframes[keyframes.length - 1]?.image
       || fallbackStageSnapshotForStage(stage)
       || "";
   }
@@ -4710,11 +4909,14 @@ function keyframeImageForStage(stage) {
   return match?.image
     || frameImage
     || stageImage
+    || (Number.isFinite(displayFrame) ? nearestKeyframeImageForFrame(displayFrame) : null)
+    || keyframes[keyframes.length - 1]?.image
     || fallbackStageSnapshotForStage(stage)
     || "";
 }
 
 function stageMetricSupport(stage, data) {
+  const stroke = analysisStrokeType(data);
   const forehandMetrics = {
     ready: [
       { label: "Ready balance", value: `${data.stability}/100`, note: "Athletic base before the ball" },
@@ -4784,8 +4986,8 @@ function stageMetricSupport(stage, data) {
       { label: "Foot reset", value: "Review", note: "Feet recover for next ball" },
     ],
   };
-  if (dom.strokeType.value === "forehand") return forehandMetrics[stage.id] || [];
-  if (dom.strokeType.value === "backhand") return backhandMetrics[stage.id] || [];
+  if (stroke === "forehand") return forehandMetrics[stage.id] || [];
+  if (stroke === "backhand") return backhandMetrics[stage.id] || [];
 
   const metrics = {
     setup: [
@@ -4837,8 +5039,9 @@ function buildServeStageDetails(data) {
 }
 
 function buildStrokeStageDetails(data) {
-  const template = strokeStageTemplate();
-  const focusFromNotes = noteFocusItems(referenceBasis().notes || defaultCoachingNotes);
+  const stroke = analysisStrokeType(data);
+  const template = strokeStageTemplate(stroke);
+  const focusFromNotes = noteFocusItems(referenceBasis().notes || defaultCoachingNotes, stroke);
 
   return template.map((stage, index) => {
     const stageScore = data.stageScores?.[stage.id] ?? data.score;
@@ -4897,9 +5100,10 @@ function stageIdealValue(stage) {
     followthrough: "Extend through contact",
     recovery: "Balanced reset for next ball",
   };
-  const ideals = dom.strokeType.value === "forehand"
+  const stroke = analysisStrokeType();
+  const ideals = stroke === "forehand"
     ? forehandIdeals
-    : dom.strokeType.value === "backhand"
+    : stroke === "backhand"
       ? backhandIdeals
       : serveIdeals;
   return ideals[stage.id] || stage.standard;
@@ -4951,12 +5155,13 @@ function renderStageAnalysis(data) {
   const stages = buildStrokeStageDetails(data);
   const lowest = stages.reduce((weakest, item) => (item.score < weakest.score ? item : weakest), stages[0]);
   const strongest = stages.reduce((best, item) => (item.score > best.score ? item : best), stages[0]);
-  const strokeText = dom.strokeType.options[dom.strokeType.selectedIndex].text;
+  const stroke = analysisStrokeType(data);
+  const strokeText = strokeDisplayText(stroke);
 
-  dom.stageAnalysisStatus.textContent = dom.strokeType.value === "forehand"
+  dom.stageAnalysisStatus.textContent = stroke === "forehand"
     ? `Generated from ${data.forehandSwingCount || detectedForehandSwingCount()} identified forehand swing${(data.forehandSwingCount || detectedForehandSwingCount()) === 1 ? "" : "s"}, corrected keypoints, and racket estimate`
-    : "Generated from corrected keypoints, racket estimate, and serve progression notes";
-  dom.overallAnalysisText.textContent = dom.strokeType.value === "forehand"
+    : `Generated from corrected keypoints, racket estimate, and ${strokeText.toLowerCase()} progression notes`;
+  dom.overallAnalysisText.textContent = stroke === "forehand"
     ? `Overall, this forehand set is ${stageQuality(data.score).toLowerCase()} across ${data.forehandSwingCount || detectedForehandSwingCount()} identified swing${(data.forehandSwingCount || detectedForehandSwingCount()) === 1 ? "" : "s"}. The strongest phase is ${stageShortName(strongest.name)}. The main training priority is ${stageShortName(lowest.name).toLowerCase()}: ${lowest.next}`
     : `Overall, this ${strokeText.toLowerCase()} is ${stageQuality(data.score).toLowerCase()} with the strongest stage in ${stageShortName(strongest.name)}. The main training priority is ${stageShortName(lowest.name).toLowerCase()}: ${lowest.next}`;
   renderMechanicsReportTable(stages);
@@ -5055,8 +5260,8 @@ function referenceBasis() {
   return { mode: "video", label: "uploaded reference", notes: "" };
 }
 
-function noteFocusItems(notes) {
-  const stageCount = strokeStageTemplate().length;
+function noteFocusItems(notes, stroke = analysisStrokeType()) {
+  const stageCount = strokeStageTemplate(stroke).length;
   return notes
     .split(/\n+/)
     .map((line) => line.replace(/^[-*\d.\s]+/, "").trim())
@@ -5066,7 +5271,8 @@ function noteFocusItems(notes) {
 }
 
 function buildReport(data) {
-  const strokeText = dom.strokeType.options[dom.strokeType.selectedIndex].text;
+  const stroke = analysisStrokeType(data);
+  const strokeText = strokeDisplayText(stroke);
   const handText = dom.dominantHand.options[dom.dominantHand.selectedIndex].text;
   const basis = referenceBasis();
   const stages = buildStrokeStageDetails(data);
@@ -5082,11 +5288,11 @@ function buildReport(data) {
     "The follow-through finishes a bit short; a longer deceleration path would help.",
   ];
 
-  if (dom.strokeType.value === "serve") {
+  if (stroke === "serve") {
     strengths[1] = "Toss and swing timing are well connected, with good awareness of high contact.";
     weaknesses[0] = "The drive from the legs into trunk rotation is slightly disconnected, limiting serve speed upside.";
   }
-  if (dom.strokeType.value === "forehand") {
+  if (stroke === "forehand") {
     const swingCount = data.forehandSwingCount || detectedForehandSwingCount();
     strengths[0] = `${swingCount} forehand swing${swingCount === 1 ? "" : "s"} were identified and sampled, so the report reflects the pattern across the video rather than one frame.`;
     strengths[1] = "The evaluation focuses on ready position, unit turn, forward swing, contact spacing, and recovery.";
@@ -5194,7 +5400,7 @@ function currentStageSnapshots(data = latestAnalysis) {
       focus: stage.next,
     }));
   }
-  return strokeStageTemplate().map((stage) => {
+  return strokeStageTemplate(analysisStrokeType(data)).map((stage) => {
     const frame = keyframes.find((item) => item.phaseId === stage.id) || keyframes.find((item) => normalizeStageName(item.phase).includes(normalizeStageName(stage.name)));
     return {
       id: stage.id,
@@ -5279,7 +5485,7 @@ async function saveVideoSession() {
     file: fileName,
     videoName: fileName,
     rawVideoUrl: dom.playerVideoSourceUrl?.value.trim() || "",
-    stroke: dom.strokeType.value,
+    stroke: analysisStrokeType(),
     dominantHand: dom.dominantHand.value,
     age: dom.playerAge.value,
     coverImage,
@@ -5452,7 +5658,7 @@ async function saveProgressSession() {
     file: dom.childFileName.textContent,
     videoName: dom.childFileName.textContent,
     rawVideoUrl: dom.playerVideoSourceUrl?.value.trim() || "",
-    stroke: dom.strokeType.value,
+    stroke: analysisStrokeType(latestAnalysis),
     dominantHand: dom.dominantHand.value,
     age: dom.playerAge.value,
     coverImage: stages.find((stage) => stage.image)?.image || captureCurrentVideoStill(),
@@ -5709,13 +5915,16 @@ function packageDiaryEntry(entry) {
     if (typeof frame.image === "string" && frame.image.startsWith("data:")) {
       const extension = imageExtensionFromDataUrl(frame.image);
       const phase = sanitizePackagePathPart(frame.phase || `frame-${index + 1}`);
-      const imagePath = `exports/${base}/keypoint-overlays/${String(index + 1).padStart(2, "0")}-${phase}-keypoints.${extension}`;
+      const rawKeyframe = frame.poseSource === "rawKeyframe" || entry.analysisMode === "raw-keyframes";
+      const imageFolder = rawKeyframe ? "raw-keyframes" : "keypoint-overlays";
+      const imageSuffix = rawKeyframe ? "raw-keyframe" : "keypoints";
+      const imagePath = `exports/${base}/${imageFolder}/${String(index + 1).padStart(2, "0")}-${phase}-${imageSuffix}.${extension}`;
       const rawPath = `exports/${base}/raw-frames/${String(index + 1).padStart(2, "0")}-${phase}-raw.${extension}`;
       const blob = dataUrlToBlob(frame.image);
       files.push({ name: imagePath, blob });
-      files.push({ name: rawPath, blob });
+      if (!rawKeyframe) files.push({ name: rawPath, blob });
       nextFrame.image = `./${imagePath}`;
-      nextFrame.rawFrame = `./${rawPath}`;
+      nextFrame.rawFrame = rawKeyframe ? `./${imagePath}` : `./${rawPath}`;
     }
     return nextFrame;
   });
@@ -5768,28 +5977,35 @@ function keyframeTimeLabel(index) {
 
 function analysisDiaryEntry(options = {}) {
   const stages = buildStrokeStageDetails(latestAnalysis);
-  const createdDate = new Date();
-  const strokeText = dom.strokeType.options[dom.strokeType.selectedIndex].text;
-  const trainingContent = dom.strokeType.value;
+  const rawKeyframeMode = isRawKeyframeAnalysisMode();
+  const createdDate = options.createdDate || new Date();
+  const entryId = `analysis-${createdDate.getTime()}`;
+  const trainingContent = analysisStrokeType(latestAnalysis);
+  const strokeText = strokeDisplayText(trainingContent);
   const sessionName = compactDiarySessionName(trainingContent, createdDate);
   const handText = dom.dominantHand.options[dom.dominantHand.selectedIndex].text;
   const fileName = dom.childFileName.textContent && dom.childFileName.textContent !== "Choose video"
     ? dom.childFileName.textContent
     : "Motion analysis session";
+  const externalRawVideoUrl = dom.playerVideoSourceUrl?.value.trim() || "";
+  const videoUrl = externalRawVideoUrl;
   const lowestStage = stages.reduce((weakest, item) => (item.score < weakest.score ? item : weakest), stages[0]);
   const keyframeEntries = stages.map((stage, index) => {
     const representativeFrame = keyframeForStage(stage);
+    const exportedImage = rawKeyframeMode
+      ? representativeFrame?.rawFrame || representativeFrame?.rawImage || representativeFrame?.image || stage.image
+      : stage.image || representativeFrame?.image || representativeFrame?.rawFrame || null;
     const representativeIndex = representativeFrame ? keyframes.indexOf(representativeFrame) : index;
     const frameIndex = representativeFrame
       ? clampFrameIndex(keyframeToFrameIndex(representativeFrame), dom.childVideo)
       : null;
     const editedFrame = editedAnchorFrameForStage(stage, representativeFrame);
     const exportedFrameIndex = Number.isFinite(editedFrame) ? editedFrame : frameIndex;
-    const exportedPose = Number.isFinite(exportedFrameIndex)
+    const exportedPose = rawKeyframeMode ? null : Number.isFinite(exportedFrameIndex)
       ? correctionForFrameIndex(exportedFrameIndex)
         || (representativeFrame?.pose ? clonePose(representativeFrame.pose) : null)
       : null;
-    const detections = (stage.metrics || []).map((metric) => ({
+    const detections = rawKeyframeMode ? [] : (stage.metrics || []).map((metric) => ({
       label: metric.label,
       value: String(metric.value),
       status: stage.score >= 80 ? "good" : "issue",
@@ -5797,37 +6013,48 @@ function analysisDiaryEntry(options = {}) {
     const metrics = detections.map((metric) => `${metric.label}: ${metric.value}`).join("; ");
     const stageEvidence = String(stage.evidence || "").trim();
     const notePrefix = /^Coach note:/i.test(stageEvidence) ? stageEvidence : `Evidence: ${stageEvidence}`;
+    const exportedPhase = normalizeKeyframeLabel(representativeFrame?.phase) || stageShortName(stage.name);
     return {
       time: representativeFrame ? keyframeTimeLabel(representativeIndex) : keyframeTimeLabel(index),
       timeSeconds: Number.isFinite(exportedFrameIndex)
         ? exportedFrameIndex / Math.max(1, Number(dom.fpsInput?.value || 60))
         : null,
       frameIndex: Number.isFinite(exportedFrameIndex) ? exportedFrameIndex : null,
-      phase: stageShortName(stage.name),
+      phase: exportedPhase,
       score: stage.score,
       status: stage.score >= 80 ? "good" : "issue",
       points: `${stage.quality}. ${metrics || stage.metric}. Focus: ${stage.next}`,
       aiNote: `${notePrefix}. Coach cue: ${stage.coachComment}`,
       detections,
-      image: options.includeImages === false ? null : stage.image,
+      image: options.includeImages === false ? null : exportedImage,
+      rawFrame: rawKeyframeMode && options.includeImages !== false ? exportedImage : representativeFrame?.rawFrame || null,
       pose: exportedPose ? clonePose(exportedPose) : null,
-      poseSource: Number.isFinite(editedFrame)
+      poseSource: rawKeyframeMode
+        ? "rawKeyframe"
+        : Number.isFinite(editedFrame)
         ? poseCorrectionSources.get(editedFrame) || "userAnchor"
         : representativeFrame?.poseSource || "detected",
     };
   });
   return {
-    id: `analysis-${Date.now()}`,
+    id: entryId,
     source: "motion-analysis",
     exportSchemaVersion: 2,
+    analysisMode: rawKeyframeMode
+      ? "raw-keyframes"
+      : isKeyframeOnlyCorrectionMode()
+        ? "corrected-keyframes"
+        : "review-video",
     createdAt: createdDate.toISOString(),
     date: diaryEntryDate(),
     title: `${sessionName} · ${strokeText} analysis`,
     stroke: trainingContent,
     trainingContent,
     sessionName,
-    videoUrl: "",
-    rawVideoUrl: dom.playerVideoSourceUrl?.value.trim() || "",
+    videoUrl,
+    previewVideoUrl: videoUrl,
+    rawVideoUrl: externalRawVideoUrl || videoUrl,
+    localVideoId: currentPlayerVideoFile ? entryId : "",
     videoName: sessionName,
     sourceVideoName: fileName,
     keyframes: keyframeEntries,
@@ -5866,10 +6093,16 @@ async function exportAnalysisToDiary() {
   if (dom.diaryExportStatus) dom.diaryExportStatus.textContent = "Exporting diary entry...";
   // Re-capture each stage at export time so the ZIP contains the latest manual
   // keypoint edits even when an earlier analysis image cache is stale.
-  await refreshAnalysisStageImages();
+  await refreshAnalysisStageImages(latestAnalysis);
   const entries = readDiaryEntries();
   const fileEntries = await readDiaryFileEntries();
-  const packageEntry = analysisDiaryEntry({ includeImages: true });
+  const createdDate = new Date();
+  const packageEntry = analysisDiaryEntry({ includeImages: true, createdDate });
+  if (currentPlayerVideoFile && packageEntry.localVideoId) {
+    await saveVideoBlob(packageEntry.localVideoId, currentPlayerVideoFile).catch((error) => {
+      console.warn("Diary raw video was not saved locally.", error);
+    });
+  }
   let localEntry = packageEntry;
   let nextEntries = mergeDiaryEntries([localEntry, ...entries], fileEntries).slice(0, 30);
   try {
@@ -5878,7 +6111,7 @@ async function exportAnalysisToDiary() {
     console.warn("Diary export with images failed; retrying without images.", error);
     // Browser storage can reject large data URLs. Keep coordinates locally and
     // retain the full images in packageEntry for the downloadable ZIP.
-    localEntry = analysisDiaryEntry({ includeImages: false });
+    localEntry = analysisDiaryEntry({ includeImages: false, createdDate });
     nextEntries = mergeDiaryEntries([localEntry, ...entries], fileEntries).slice(0, 30);
     writeDiaryEntries(nextEntries);
   }
@@ -5895,6 +6128,40 @@ function serializePoseCorrections() {
     clonePose(pose),
     poseCorrectionSources.get(frame) || "manual",
   ]);
+}
+
+function downloadFrameCorrections() {
+  if (!poseCorrections.size) {
+    dom.roiStatus.textContent = "No frame corrections are available to download yet.";
+    return;
+  }
+  const baseName = String(dom.childFileName.textContent || "motion-analysis")
+    .replace(/\.[^.]+$/, "")
+    .replace(/[^A-Za-z0-9_-]+/g, "-") || "motion-analysis";
+  const payload = {
+    schemaVersion: 1,
+    exportedAt: new Date().toISOString(),
+    sourceVideoName: dom.childFileName.textContent || "",
+    fps: Math.max(1, Number(dom.fpsInput?.value || 60)),
+    duration: Number(dom.childVideo.duration || 0),
+    totalFrames: totalFrameCount(dom.childVideo),
+    roi: { confirmed: roiRuntime.confirmed, crop: { ...roiRuntime.crop } },
+    correctionScope,
+    frames: serializePoseCorrections().map(([frame, pose, source]) => ({ frame, source, pose })),
+    keyframes: keyframes.map((item) => ({
+      phase: item.phase,
+      phaseId: item.phaseId,
+      swingIndex: item.swingIndex,
+      time: item.time,
+      frameIndex: keyframeToFrameIndex(item),
+      poseSource: item.poseSource || "detected",
+      pose: clonePose(item.pose || {}),
+    })),
+    ballAnchors: sortedBallAnchorFrames(),
+    racketManualFrames: Array.from(racketManualFrames).sort((a, b) => a - b),
+  };
+  downloadJsonFile(`${baseName}-frame-corrections.json`, payload);
+  dom.roiStatus.textContent = `Saved ${payload.frames.length} corrected/tracked frames to JSON.`;
 }
 
 function restorePoseCorrections(entries = [], savedBallAnchors = [], savedRacketManualFrames = []) {
@@ -5950,11 +6217,16 @@ function draftPayload() {
     },
     keyframes: keyframes.map((frame) => ({
       phase: frame.phase,
+      phaseId: frame.phaseId,
+      swingIndex: frame.swingIndex,
       time: frame.time,
       frameIndex: frame.frameIndex,
       note: frame.note,
       image: frame.image,
+      rawFrame: frame.rawFrame || null,
+      rawImage: frame.rawImage || null,
       pose: clonePose(frame.pose || {}),
+      poseSource: frame.poseSource,
     })),
     selectedKeyframeIndex,
     keypointTrackingReady,
@@ -5965,7 +6237,7 @@ function draftPayload() {
       anchors: anchorRecords(),
       lowQualityFrames: lowQualityFrames(10),
       tracking: trajectorySummary(),
-      serveStages: strokeStageTemplate().map((stage) => ({
+      serveStages: strokeStageTemplate(dom.strokeType.value).map((stage) => ({
         id: stage.id,
         name: stage.name,
         standard: stage.standard,
@@ -5982,20 +6254,40 @@ function draftPayload() {
 
 function saveDraft() {
   const payload = draftPayload();
-  localStorage.setItem(draftStorageKey, JSON.stringify(payload));
-  dom.draftStatus.textContent = `Draft saved ${new Date(payload.savedAt).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}`;
+  const savedLabel = new Date(payload.savedAt).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  dom.draftStatus.textContent = "Saving draft...";
+
+  try {
+    localStorage.setItem(draftStorageKey, JSON.stringify(payload));
+    dom.draftStatus.textContent = `Draft saved ${savedLabel}`;
+  } catch (error) {
+    // Embedded frame previews can exceed the browser's localStorage quota. Keep
+    // the editable frame data in a compact browser draft and download the full
+    // payload (including previews) as a recovery file.
+    const compactPayload = {
+      ...payload,
+      keyframes: payload.keyframes.map((frame) => ({ ...frame, image: null })),
+    };
+
+    try {
+      localStorage.setItem(draftStorageKey, JSON.stringify(compactPayload));
+      const safeName = (payload.fileName || "motion-analysis")
+        .replace(/\.[^.]+$/, "")
+        .replace(/[^a-z0-9_-]+/gi, "-")
+        .replace(/^-+|-+$/g, "") || "motion-analysis";
+      downloadJsonFile(`${safeName}-full-draft.json`, payload);
+      dom.draftStatus.textContent = `Draft saved ${savedLabel}. Full recovery file downloaded.`;
+    } catch (compactError) {
+      downloadJsonFile("motion-analysis-emergency-draft.json", payload);
+      dom.draftStatus.textContent = "Browser storage is full. Full recovery file downloaded instead.";
+    }
+  }
+
   updateDraftControls();
 }
 
-function loadDraft() {
-  const raw = localStorage.getItem(draftStorageKey);
-  if (!raw) {
-    dom.draftStatus.textContent = "No draft found.";
-    return;
-  }
-
+function applyDraftPayload(draft) {
   try {
-    const draft = JSON.parse(raw);
     if (draft.motion) {
       dom.strokeType.value = draft.motion.strokeType || dom.strokeType.value;
       dom.dominantHand.value = draft.motion.dominantHand || dom.dominantHand.value;
@@ -6025,7 +6317,7 @@ function loadDraft() {
     keyframes = Array.isArray(draft.keyframes) ? draft.keyframes : [];
     selectedKeyframeIndex = clamp(Number(draft.selectedKeyframeIndex || 0), 0, Math.max(0, keyframes.length - 1));
     restorePoseCorrections(draft.corrections || [], draft.ballAnchors || [], draft.racketManualFrames || []);
-    correctionScope = draft.correctionScope === "keyframes" ? "keyframes" : "video";
+    correctionScope = ["keyframes", "keyframesRaw"].includes(draft.correctionScope) ? draft.correctionScope : "video";
     keypointTrackingReady = Boolean(draft.keypointTrackingReady);
     keypointVideoReady = false;
     motionAnalysisReady = false;
@@ -6041,6 +6333,38 @@ function loadDraft() {
     updateWorkflow();
   } catch {
     dom.draftStatus.textContent = "Draft could not be loaded.";
+  }
+}
+
+function loadDraft() {
+  const raw = localStorage.getItem(draftStorageKey);
+  if (!raw) {
+    dom.draftStatus.textContent = "No draft found.";
+    return;
+  }
+
+  try {
+    applyDraftPayload(JSON.parse(raw));
+  } catch {
+    dom.draftStatus.textContent = "Draft could not be loaded.";
+  }
+}
+
+async function importDraftFile(event) {
+  const file = event.target.files?.[0];
+  if (!file) return;
+  try {
+    const draft = JSON.parse(await file.text());
+    if (!Array.isArray(draft.keyframes) || !Array.isArray(draft.corrections)) {
+      throw new Error("Invalid motion-analysis draft");
+    }
+    applyDraftPayload(draft);
+    dom.draftStatus.textContent = `Draft imported: ${file.name} (${draft.corrections.length} corrected frames)`;
+  } catch (error) {
+    console.warn("Draft import failed", error);
+    dom.draftStatus.textContent = "Draft file could not be imported.";
+  } finally {
+    event.target.value = "";
   }
 }
 
@@ -6256,7 +6580,7 @@ function canvasLooksBlank(canvas) {
   return sampled > 0 && informative / sampled < 0.015;
 }
 
-async function refreshAnalysisStageImages() {
+async function refreshAnalysisStageImages(data = latestAnalysis) {
   analysisStageImageCache.clear();
   if (!dom.childVideo || !keyframes.length) return;
 
@@ -6269,13 +6593,21 @@ async function refreshAnalysisStageImages() {
   const fps = Math.max(1, Number(dom.fpsInput?.value || 60));
   video.pause();
 
-  for (const stage of strokeStageTemplate()) {
+  for (const stage of strokeStageTemplate(analysisStrokeType(data))) {
     const match = keyframeForStage(stage);
     if (!match) continue;
 
     const defaultFrame = clampFrameIndex(keyframeToFrameIndex(match), video);
     const editedFrame = editedAnchorFrameForStage(stage, match);
     const frameIndex = Number.isFinite(editedFrame) ? editedFrame : defaultFrame;
+    if (isRawKeyframeAnalysisMode()) {
+      const rawImage = match.rawFrame || match.rawImage || match.image || "";
+      if (rawImage) {
+        analysisStageImageCache.set(frameIndex, rawImage);
+        analysisStageImageCache.set(stageImageCacheKey(stage), rawImage);
+      }
+      continue;
+    }
     const time = frameIndex / fps;
     try {
       await seekVideoToTime(video, time, 1800);
@@ -6567,6 +6899,9 @@ async function fallbackKeyframeCardsForStages(frames) {
       image: image
         || fallbackRawStageSnapshotForStage({ phase: frame.phase })
         || fallbackStageSnapshotForStage({ phase: frame.phase }),
+      rawFrame: image
+        || fallbackRawStageSnapshotForStage({ phase: frame.phase })
+        || fallbackStageSnapshotForStage({ phase: frame.phase }),
       pose,
       poseSource: "fallbackTemplate",
     });
@@ -6791,11 +7126,12 @@ async function generateKeyframes(data) {
       await nextPaint();
       const detectedPose = snapshotDetectedPoseForKeyframe(frameIndex);
       const pose = detectedPose || baselinePoseForFrame(frameIndex);
+      const rawFrame = captureRawKeyframeImage() || fallbackRawStageSnapshotForStage({ phase: frame.phase });
       // Never paint the synthetic baseline pose over a real frame. It is only
       // an editor starting point and has no visual-detection confidence.
       const image = detectedPose
         ? captureAnalysisFrame(detectedPose)
-        : captureRawKeyframeImage() || fallbackRawStageSnapshotForStage({ phase: frame.phase });
+        : rawFrame;
       // Keep a frozen pose + image for this stage. Do not let later playback,
       // smoothing, or editor state redraw every card from the same current frame.
       cards.push({
@@ -6803,6 +7139,7 @@ async function generateKeyframes(data) {
         time: actualTime,
         frameIndex,
         image,
+        rawFrame,
         pose,
         poseSource: detectedPose ? "mediaPipe" : "fallbackTemplate",
       });
@@ -6842,9 +7179,10 @@ async function generateKeyframes(data) {
 function renderKeyframes() {
   if (!keyframes.length) {
     dom.keyframeGrid.innerHTML = strokeStageTemplate()
-      .map((stage) => `<article class="keyframe-card empty">${stageShortName(stage.name)}</article>`)
+      .map((stage) => `<article class="keyframe-card empty">${escapeHtml(stageShortName(stage.name))}</article>`)
       .join("");
     dom.keyframeStatus.textContent = "Run analysis to generate frames";
+    syncKeyframeLabelEditor();
     return;
   }
 
@@ -6855,16 +7193,18 @@ function renderKeyframes() {
         const source = poseCorrectionSources.get(frameIndex) || "defaultAnchor";
         const quality = trackingQualityForFrame(frameIndex);
         const needsCorrection = frame.poseSource === "fallbackTemplate";
+        const phase = normalizeKeyframeLabel(frame.phase) || "Custom";
         return `
         <article class="keyframe-card ${index === selectedKeyframeIndex ? "selected" : ""} ${needsCorrection ? "anchor-suggested" : anchorTypeClass(source)}" data-index="${index}">
-          <img src="${frame.image}" alt="${frame.phase} key frame" data-expand="${index}" />
+          <button class="keyframe-card-delete" type="button" data-delete-keyframe="${index}" aria-label="Delete ${escapeHtml(phase)} key frame">Delete</button>
+          <img src="${escapeHtml(frame.image)}" alt="${escapeHtml(phase)} key frame" data-expand="${index}" />
           <div class="keyframe-body">
             <div class="keyframe-title-row">
-              <strong>${frame.phase}</strong>
+              <strong>${escapeHtml(phase)}</strong>
               <span class="anchor-badge ${needsCorrection ? "anchor-suggested" : anchorTypeClass(source)}">${needsCorrection ? "Needs correction" : anchorTypeLabel(source)}</span>
             </div>
             <span class="keyframe-meta">${frame.time.toFixed(2)}s · ${needsCorrection ? "CV pose unavailable" : `quality ${quality.score}`}</span>
-            <p>${frame.note}</p>
+            <p>${escapeHtml(frame.note)}</p>
           </div>
         </article>
       `;
@@ -6872,10 +7212,32 @@ function renderKeyframes() {
     )
     .join("");
   dom.keyframeStatus.textContent = `${keyframes.length} key frame${keyframes.length === 1 ? "" : "s"}`;
+  syncKeyframeLabelEditor();
 }
 
 function currentPhaseName() {
-  return dom.phaseName.textContent || "Custom";
+  return normalizeKeyframeLabel(dom.phaseName.textContent) || "Custom";
+}
+
+function selectedKeyframeLabel() {
+  const frame = keyframes[selectedKeyframeIndex];
+  return normalizeKeyframeLabel(frame?.phase) || "Custom";
+}
+
+function syncKeyframeLabelEditor() {
+  if (!dom.keyframeLabelEditor || !dom.keyframeLabelInput || !dom.saveKeyframeLabelButton) return;
+  const hasKeyframes = keyframes.length > 0;
+  dom.keyframeLabelEditor.classList.toggle("hidden", !hasKeyframes);
+  dom.keyframeLabelInput.disabled = !hasKeyframes;
+  dom.saveKeyframeLabelButton.disabled = !hasKeyframes;
+  dom.keyframeLabelInput.value = hasKeyframes ? selectedKeyframeLabel() : "";
+}
+
+function nextCustomKeyframeLabel() {
+  const typed = normalizeKeyframeLabel(dom.keyframeLabelInput?.value);
+  if (typed && typed !== selectedKeyframeLabel()) return typed;
+  const customCount = keyframes.filter((frame) => /^custom(?:\s+\d+)?$/i.test(normalizeKeyframeLabel(frame.phase))).length;
+  return customCount ? `Custom ${customCount + 1}` : "Custom";
 }
 
 async function captureCurrentKeyframe(phase = currentPhaseName()) {
@@ -6890,19 +7252,26 @@ async function captureCurrentKeyframe(phase = currentPhaseName()) {
   await detectChildPose(dom.childVideo, { force: true });
   await nextPaint();
   const frameIndex = currentFrameIndex(dom.childVideo);
-  const pose = snapshotDetectedPoseForKeyframe(frameIndex);
+  const detectedPose = snapshotDetectedPoseForKeyframe(frameIndex);
+  const pose = detectedPose || baselinePoseForFrame(frameIndex);
+  const rawFrame = captureRawKeyframeImage();
+  const image = detectedPose
+    ? captureAnalysisFrame(detectedPose)
+    : rawFrame;
   return {
     phase,
     time: dom.childVideo.currentTime || 0,
     frameIndex,
     note: `Manually selected frame at ${(dom.childVideo.currentTime || 0).toFixed(2)}s.`,
-    image: captureAnalysisFrame(pose),
+    image,
+    rawFrame,
     pose,
+    poseSource: detectedPose ? "mediaPipe" : "fallbackTemplate",
   };
 }
 
 async function addCurrentKeyframe() {
-  const frame = await captureCurrentKeyframe("Custom");
+  const frame = await captureCurrentKeyframe(nextCustomKeyframeLabel());
   if (!frame) return;
   keyframes.push(frame);
   selectedKeyframeIndex = keyframes.length - 1;
@@ -6918,21 +7287,31 @@ async function addCurrentKeyframe() {
 async function updateSelectedKeyframe() {
   if (!keyframes.length) return;
   const current = keyframes[selectedKeyframeIndex];
+  const oldFrameIndex = keyframeToFrameIndex(current);
   const frame = await captureCurrentKeyframe(current?.phase || "Custom");
   if (!frame) return;
   frame.note = current?.note || frame.note;
+  frame.phaseId = current?.phaseId || frame.phaseId;
+  frame.swingIndex = current?.swingIndex || frame.swingIndex;
   keyframes[selectedKeyframeIndex] = frame;
   const frameIndex = keyframeToFrameIndex(frame);
+  if (oldFrameIndex !== frameIndex && poseCorrectionSources.get(oldFrameIndex) === "defaultAnchor") {
+    poseCorrections.delete(oldFrameIndex);
+    poseCorrectionSources.delete(oldFrameIndex);
+  }
   seedDefaultAnchorForFrame(frameIndex, "defaultAnchor", frame.pose);
   scheduleAutoSmoothTrack("Anchor frame updated. Updating nearby tracked result.", frameIndex);
   keypointTrackingReady = false;
   renderKeyframes();
+  dom.keyframeStatus.textContent = `${frame.phase} replaced with frame ${frameIndex} at ${frame.time.toFixed(2)}s.`;
+  dom.roiStatus.textContent = `Selected key frame updated to ${frame.time.toFixed(2)}s. Review the preview, then continue corrections.`;
   invalidateKeypointVideo("Selected key frame changed. Render a new review video.");
   updateWorkflow();
 }
 
 function deleteSelectedKeyframe() {
   if (!keyframes.length) return;
+  const removedPhase = normalizeKeyframeLabel(keyframes[selectedKeyframeIndex]?.phase) || "Selected";
   const removedFrame = keyframeToFrameIndex(keyframes[selectedKeyframeIndex]);
   keyframes.splice(selectedKeyframeIndex, 1);
   if (poseCorrectionSources.get(removedFrame) === "defaultAnchor") {
@@ -6943,8 +7322,15 @@ function deleteSelectedKeyframe() {
   keypointTrackingReady = false;
   scheduleAutoSmoothTrack("Anchor frame deleted. Updating nearby tracked result.", removedFrame);
   renderKeyframes();
+  dom.keyframeStatus.textContent = `${removedPhase} key frame deleted.`;
   invalidateKeypointVideo("Key frames changed. Render a new review video.");
   updateWorkflow();
+}
+
+function deleteKeyframeAt(index) {
+  if (!keyframes.length) return;
+  selectedKeyframeIndex = clamp(index, 0, Math.max(0, keyframes.length - 1));
+  deleteSelectedKeyframe();
 }
 
 function selectKeyframe(index) {
@@ -6963,6 +7349,32 @@ function selectKeyframe(index) {
     }
   }
   renderKeyframes();
+  syncKeyframeLabelEditor();
+  if (frame) {
+    dom.keyframeStatus.textContent = `Selected ${frame.phase} at ${Number(frame.time || 0).toFixed(2)}s. Move the video to a better moment, then replace it.`;
+  }
+}
+
+function saveSelectedKeyframeLabel() {
+  if (!keyframes.length || !dom.keyframeLabelInput) return;
+  const label = normalizeKeyframeLabel(dom.keyframeLabelInput.value);
+  if (!label) {
+    dom.keyframeStatus.textContent = "Type a label for the selected key frame.";
+    syncKeyframeLabelEditor();
+    return;
+  }
+  const frame = keyframes[selectedKeyframeIndex];
+  if (!frame) return;
+  frame.phase = label;
+  if (!frame.note || /^Manually selected frame at/i.test(frame.note)) {
+    frame.note = `Manually selected ${label} frame at ${Number(frame.time || 0).toFixed(2)}s.`;
+  }
+  keypointTrackingReady = false;
+  motionAnalysisReady = false;
+  renderKeyframes();
+  invalidateKeypointVideo("Key frame label changed. Render a new review video or analyze from key frames.");
+  dom.keyframeStatus.textContent = `Label saved: ${label}`;
+  updateWorkflow();
 }
 
 function expandKeyframe(index) {
@@ -7062,22 +7474,24 @@ async function exportKeypointVideo() {
   const video = dom.childVideo;
   const originalTime = video.currentTime || 0;
   const wasPaused = video.paused;
+  const originalMuted = video.muted;
+  const originalPlaybackRate = video.playbackRate;
   const exportRect = reviewRenderRect(720);
   const output = document.createElement("canvas");
   output.width = exportRect.width;
   output.height = exportRect.height;
   const exportFrameRate = 20;
-  const exportDuration = Math.min(
-    Number.isFinite(video.duration) && video.duration > 0 ? video.duration : 4,
-    8,
-  );
-  const stream = output.captureStream(0);
-  const canvasTrack = stream.getVideoTracks?.()[0];
-  const recorderOptions = MediaRecorder.isTypeSupported("video/webm;codecs=vp9")
-    ? { mimeType: "video/webm;codecs=vp9" }
-    : MediaRecorder.isTypeSupported("video/webm")
-      ? { mimeType: "video/webm" }
-      : {};
+  const exportDuration = Number.isFinite(video.duration) && video.duration > 0 ? video.duration : 4;
+  const stream = output.captureStream(exportFrameRate);
+  const recorderOptions = MediaRecorder.isTypeSupported("video/mp4;codecs=avc1.42E01E")
+    ? { mimeType: "video/mp4;codecs=avc1.42E01E" }
+    : MediaRecorder.isTypeSupported("video/mp4")
+      ? { mimeType: "video/mp4" }
+      : MediaRecorder.isTypeSupported("video/webm;codecs=vp9")
+        ? { mimeType: "video/webm;codecs=vp9" }
+        : MediaRecorder.isTypeSupported("video/webm")
+          ? { mimeType: "video/webm" }
+          : {};
   const recorder = new MediaRecorder(stream, recorderOptions);
   const chunks = [];
 
@@ -7086,7 +7500,9 @@ async function exportKeypointVideo() {
   };
 
   dom.exportVideoButton.disabled = true;
-  dom.downloadVideoLink.classList.add("hidden");
+  dom.downloadVideoLink.classList.add("disabled");
+  dom.downloadVideoLink.setAttribute("aria-disabled", "true");
+  dom.downloadVideoLink.removeAttribute("href");
   dom.annotatedVideoPanel.classList.remove("hidden");
   reviewVideoRendering = true;
   dom.annotatedVideo.removeAttribute("src");
@@ -7102,9 +7518,6 @@ async function exportKeypointVideo() {
 
   const paintExportFrame = async (frameIndex = currentFrameIndex(video)) => {
     const hasVideoFrame = await paintAnnotatedFrameToCanvasAtFrame(output, frameIndex, exportRect);
-    if (typeof canvasTrack?.requestFrame === "function") {
-      canvasTrack.requestFrame();
-    }
     return hasVideoFrame;
   };
 
@@ -7123,27 +7536,38 @@ async function exportKeypointVideo() {
   }
 
   recorder.start(250);
-  const frameCount = Math.max(1, Math.ceil(exportDuration * exportFrameRate));
+  await new Promise((resolve) => window.setTimeout(resolve, 120));
 
   try {
-    for (let frame = 0; frame < frameCount; frame += 1) {
-      const time = clamp(frame / exportFrameRate, 0, exportDuration);
-      await seekVideoToTime(video, time, 900);
+    // Play the source in real time while recording the canvas. Repeated seeks
+    // can leave the browser decoder on one frame even when currentTime changes.
+    video.muted = true;
+    video.playbackRate = 1;
+    await video.play();
+    const deadline = Date.now() + Math.ceil((exportDuration + 3) * 1000);
+    while (!video.ended && video.currentTime < exportDuration - 0.001 && Date.now() < deadline) {
+      const time = clamp(video.currentTime, 0, exportDuration);
       await paintExportFrame(frameIndexForTime(time));
-      const progress = clamp((frame + 1) / frameCount, 0, 1);
+      const progress = clamp(time / Math.max(0.01, exportDuration), 0, 1);
       dom.annotatedVideoStatus.textContent = `Rendering annotated video... ${Math.round(progress * 100)}%`;
       await new Promise((resolve) => window.setTimeout(resolve, 1000 / exportFrameRate));
     }
+    video.pause();
+    await paintExportFrame(frameIndexForTime(Math.min(exportDuration, video.currentTime)));
   } catch (error) {
     console.warn("Review video frame rendering failed", error);
     dom.roiStatus.textContent = "Review video rendering had trouble. Use the frame preview, then try rendering again.";
   }
 
+  await new Promise((resolve) => window.setTimeout(resolve, 160));
   recorder.stop();
   video.pause();
+  video.muted = originalMuted;
+  video.playbackRate = originalPlaybackRate;
   await done;
 
-  const blob = new Blob(chunks, { type: "video/webm" });
+  const recordedMimeType = recorder.mimeType || chunks[0]?.type || "video/webm";
+  const blob = new Blob(chunks, { type: recordedMimeType });
   if (blob.size < 2048) {
     reviewVideoRendering = false;
     keypointVideoReady = false;
@@ -7153,7 +7577,9 @@ async function exportKeypointVideo() {
     dom.annotatedVideo.load();
     syncAnnotatedVideoShell("review");
     dom.annotatedVideoStatus.textContent = "Video recorder returned an empty file. Frame Preview is still available.";
-    dom.downloadVideoLink.classList.add("hidden");
+    dom.downloadVideoLink.classList.add("disabled");
+    dom.downloadVideoLink.setAttribute("aria-disabled", "true");
+    dom.downloadVideoLink.removeAttribute("href");
     dom.roiStatus.textContent = "Review video was empty. Check Frame Preview or render again.";
     dom.exportVideoButton.disabled = false;
     updateWorkflow();
@@ -7174,7 +7600,11 @@ async function exportKeypointVideo() {
   syncAnnotatedVideoShell("review");
   dom.annotatedVideoStatus.textContent = "Ready for replay and frame review";
   dom.downloadVideoLink.href = url;
-  dom.downloadVideoLink.classList.remove("hidden");
+  const sourceName = String(dom.childFileName.textContent || "keypoint-detection").replace(/\.[^.]+$/, "").replace(/[^A-Za-z0-9_-]+/g, "-");
+  const videoExtension = recordedMimeType.includes("mp4") ? "mp4" : "webm";
+  dom.downloadVideoLink.download = `${sourceName || "keypoint-detection"}-keypoints.${videoExtension}`;
+  dom.downloadVideoLink.classList.remove("disabled");
+  dom.downloadVideoLink.setAttribute("aria-disabled", "false");
   dom.roiStatus.textContent = "Annotated keypoint video rendered.";
   dom.exportVideoButton.disabled = false;
   updateWorkflow();
@@ -7286,10 +7716,12 @@ async function runAnalysis() {
     dom.roiStatus.textContent = "Detect or select key frames before motion analysis.";
     return;
   }
-  const hasAnalysisInput = keypointVideoReady || isKeyframeOnlyCorrectionReady();
+  const hasAnalysisInput = isAnalysisInputReady();
   if (!hasAnalysisInput) {
     setStatus(isKeyframeOnlyCorrectionMode() ? "Corrections needed" : "Review video needed", "running");
-    dom.roiStatus.textContent = isKeyframeOnlyCorrectionMode()
+    dom.roiStatus.textContent = isRawKeyframeAnalysisMode()
+      ? "Select or auto-detect key frames before running raw key-frame analysis."
+      : isKeyframeOnlyCorrectionMode()
       ? "Save key-frame corrections and generate the smooth track before motion analysis."
       : "Render and review the keypoint video before motion analysis.";
     return;
@@ -7298,9 +7730,9 @@ async function runAnalysis() {
   setStatus("Analyzing", "running");
   dom.analyzeButton.disabled = true;
 
-  await refreshAnalysisStageImages();
-  await new Promise((resolve) => setTimeout(resolve, 650));
   latestAnalysis = analyzeMotion();
+  await refreshAnalysisStageImages(latestAnalysis);
+  await new Promise((resolve) => setTimeout(resolve, 650));
   updateMetrics(latestAnalysis);
   buildReport(latestAnalysis);
   motionAnalysisReady = true;
@@ -7310,7 +7742,9 @@ async function runAnalysis() {
     dom.annotatedVideoStatus.textContent = "Final reviewed video used for motion analysis";
   } else {
     dom.annotatedVideoPanel.classList.add("hidden");
-    dom.annotatedVideoStatus.textContent = "Analysis generated from corrected key frames";
+    dom.annotatedVideoStatus.textContent = isRawKeyframeAnalysisMode()
+      ? "Analysis generated from raw key-frame photos"
+      : "Analysis generated from corrected key frames";
   }
   dom.progressStatus.textContent = "Analysis complete. Save this session to track progress.";
   if (dom.diaryExportStatus) dom.diaryExportStatus.textContent = "Analysis complete. Export this result to the training diary.";
@@ -7339,6 +7773,12 @@ async function runWorkflowPrimaryAction() {
     return;
   }
   if (step === "keypoints") {
+    if (isRawKeyframeAnalysisMode()) {
+      workflowStepOverride = "analysis";
+      updateWorkflow();
+      scrollToMotionAnalysis();
+      return;
+    }
     if (poseRuntime.editMode) {
       toggleKeypointEdit();
       if (isKeyframeOnlyCorrectionReady()) {
@@ -7396,6 +7836,8 @@ dom.analyzeButton.onclick = runWorkflowPrimaryAction;
 dom.workflowNextButton.onclick = runWorkflowPrimaryAction;
 dom.saveDraftButton.addEventListener("click", saveDraft);
 dom.loadDraftButton.addEventListener("click", loadDraft);
+dom.importDraftButton?.addEventListener("click", () => dom.importDraftInput?.click());
+dom.importDraftInput?.addEventListener("change", importDraftFile);
 dom.confirmRoiButton.addEventListener("click", confirmRoi);
 dom.editKeyframeAnchorsButton?.addEventListener("click", openSelectedKeyframeEditor);
 dom.editKeypointsButton.addEventListener("click", () => {
@@ -7406,11 +7848,14 @@ dom.editKeypointsButton.addEventListener("click", () => {
   openFullVideoEditor();
 });
 dom.fixKeyframesOnlyButton?.addEventListener("click", openSelectedKeyframeEditor);
+dom.skipFrameEditingButton?.addEventListener("click", useRawKeyframesForAnalysis);
+dom.useKeyframesOnlyButton?.addEventListener("click", useRawKeyframesForAnalysis);
 dom.fixFullVideoButton?.addEventListener("click", openFullVideoEditor);
 dom.exportVideoButton.addEventListener("click", exportKeypointVideo);
 dom.replayAnnotatedButton.addEventListener("click", replayAnnotatedVideo);
 dom.pauseAnnotatedButton.addEventListener("click", toggleAnnotatedPause);
 dom.editReviewFrameButton.addEventListener("click", editCurrentReviewFrame);
+dom.downloadCorrectionsButton?.addEventListener("click", downloadFrameCorrections);
 dom.annotatedVideo.addEventListener("play", updateAnnotatedPlaybackState);
 dom.annotatedVideo.addEventListener("pause", updateAnnotatedPlaybackState);
 dom.annotatedVideo.addEventListener("pause", syncReviewPreviewFromAnnotatedVideo);
@@ -7420,6 +7865,11 @@ dom.reviewFrameScrubber?.addEventListener("input", () => {
   dom.annotatedVideo.pause();
   renderReviewFramePreview(Number(dom.reviewFrameScrubber.value || 0));
 });
+dom.keyframePickerScrubber?.addEventListener("input", () => {
+  seekKeyframePickerTo(Number(dom.keyframePickerScrubber.value || 0));
+});
+dom.previousKeyframePickerButton?.addEventListener("click", () => stepKeyframePicker(-1));
+dom.nextKeyframePickerButton?.addEventListener("click", () => stepKeyframePicker(1));
 dom.frameScrubber.addEventListener("input", () => {
   seekToScrubbedFrame().catch((error) => {
     console.warn("Could not seek to scrubbed frame", error);
@@ -7432,6 +7882,11 @@ dom.keypointSelect.addEventListener("change", () => {
 });
 dom.toggleKeypointVisibilityButton.addEventListener("click", toggleSelectedKeypointVisibility);
 dom.childVideo.addEventListener("timeupdate", syncFrameScrubber);
+dom.childVideo.addEventListener("timeupdate", syncKeyframePicker);
+dom.childVideo.addEventListener("loadedmetadata", syncKeyframePicker);
+dom.childVideo.addEventListener("durationchange", syncKeyframePicker);
+dom.childVideo.addEventListener("canplay", syncKeyframePicker);
+dom.childVideo.addEventListener("seeked", syncKeyframePicker);
 dom.childVideo.addEventListener("play", updateEditPlaybackButton);
 dom.childVideo.addEventListener("pause", updateEditPlaybackButton);
 dom.editPlayPauseButton.addEventListener("click", toggleEditPlayback);
@@ -7439,6 +7894,9 @@ dom.saveKeyframeAnchorButton.addEventListener("click", saveKeyframeAnchor);
 dom.generateTrackedFramesButton.addEventListener("click", generateSmoothTrack);
 dom.saveTrainingSampleButton.addEventListener("click", saveTrainingSample);
 dom.suggestedAnchorButton.addEventListener("click", goToSuggestedAnchorFrame);
+window.setTimeout(syncKeyframePicker, 0);
+window.setTimeout(syncKeyframePicker, 250);
+window.setTimeout(syncKeyframePicker, 1000);
 dom.lowQualityFrames.addEventListener("click", (event) => {
   const chip = event.target.closest("[data-frame]");
   if (!chip) return;
@@ -7480,8 +7938,22 @@ dom.detectKeyframesButton.onclick = detectKeyframes;
 dom.addKeyframeButton.addEventListener("click", addCurrentKeyframe);
 dom.updateKeyframeButton.addEventListener("click", updateSelectedKeyframe);
 dom.deleteKeyframeButton.addEventListener("click", deleteSelectedKeyframe);
+dom.saveKeyframeLabelButton?.addEventListener("click", saveSelectedKeyframeLabel);
+dom.keyframeLabelInput?.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") {
+    event.preventDefault();
+    saveSelectedKeyframeLabel();
+  }
+});
 dom.closeFrameModal.addEventListener("click", () => dom.frameModal.close());
 dom.keyframeGrid.addEventListener("click", (event) => {
+  const deleteButton = event.target.closest("[data-delete-keyframe]");
+  if (deleteButton) {
+    event.preventDefault();
+    event.stopPropagation();
+    deleteKeyframeAt(Number(deleteButton.dataset.deleteKeyframe));
+    return;
+  }
   const card = event.target.closest(".keyframe-card[data-index]");
   if (card) {
     selectKeyframe(Number(card.dataset.index));

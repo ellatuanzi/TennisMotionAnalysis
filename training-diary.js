@@ -6,6 +6,8 @@ const urlParams = new URLSearchParams(window.location.search);
 const releaseVersion = document.documentElement.dataset.releaseVersion || "";
 const defaultDataFile = releaseVersion ? `./diary-data.json?v=${encodeURIComponent(releaseVersion)}` : "./diary-data.json";
 const dataFile = urlParams.get("data") || defaultDataFile;
+const videoDbName = "tennisMotionLab.localVideos";
+const videoStoreName = "videos";
 let localEntryCount = 0;
 let fileEntryCount = 0;
 let fileEntryKeys = new Set();
@@ -1098,6 +1100,56 @@ function isLocalAssetUrl(value = "") {
   return value.startsWith("./") || value.startsWith("assets/");
 }
 
+function isPlayableVideoUrl(value = "") {
+  return isLocalAssetUrl(value) || value.startsWith("blob:") || value.startsWith("data:video/");
+}
+
+function openVideoDb() {
+  return new Promise((resolve, reject) => {
+    if (!window.indexedDB) {
+      reject(new Error("IndexedDB is not available in this browser."));
+      return;
+    }
+    const request = indexedDB.open(videoDbName, 1);
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains(videoStoreName)) {
+        db.createObjectStore(videoStoreName, { keyPath: "id" });
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error || new Error("Could not open local video storage."));
+  });
+}
+
+async function loadLocalVideoBlob(videoId) {
+  if (!videoId) return null;
+  const db = await openVideoDb();
+  return new Promise((resolve) => {
+    const transaction = db.transaction(videoStoreName, "readonly");
+    const request = transaction.objectStore(videoStoreName).get(videoId);
+    request.onsuccess = () => resolve(request.result?.blob || null);
+    request.onerror = () => resolve(null);
+    transaction.oncomplete = () => db.close();
+    transaction.onerror = () => db.close();
+  });
+}
+
+async function attachLocalVideo(card, entry) {
+  if (!entry.localVideoId) return;
+  const videoWrap = card.querySelector(".video-link-wrap");
+  if (!videoWrap || videoWrap.querySelector("video")) return;
+  const blob = await loadLocalVideoBlob(entry.localVideoId).catch(() => null);
+  if (!blob) return;
+  const url = URL.createObjectURL(blob);
+  const video = document.createElement("video");
+  video.src = url;
+  video.controls = true;
+  video.playsInline = true;
+  video.preload = "metadata";
+  videoWrap.prepend(video);
+}
+
 function renderDetectionList(container, detections = []) {
   if (!detections.length) return;
   const list = document.createElement("div");
@@ -1321,7 +1373,7 @@ function renderEntries() {
     const previewVideoUrl = entry.previewVideoUrl || entry.videoUrl;
     const rawVideoUrl = entry.rawVideoUrl || entry.videoUrl || previewVideoUrl;
     if (previewVideoUrl || rawVideoUrl) {
-      if (previewVideoUrl && isLocalAssetUrl(previewVideoUrl)) {
+      if (previewVideoUrl && isPlayableVideoUrl(previewVideoUrl)) {
         const video = document.createElement("video");
         video.src = previewVideoUrl;
         video.controls = true;
@@ -1347,6 +1399,7 @@ function renderEntries() {
     }
 
     dom.diaryList.append(card);
+    attachLocalVideo(card, entry);
   });
 }
 
