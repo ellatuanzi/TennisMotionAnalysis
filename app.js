@@ -5978,7 +5978,8 @@ function keyframeTimeLabel(index) {
 function analysisDiaryEntry(options = {}) {
   const stages = buildStrokeStageDetails(latestAnalysis);
   const rawKeyframeMode = isRawKeyframeAnalysisMode();
-  const createdDate = new Date();
+  const createdDate = options.createdDate || new Date();
+  const entryId = `analysis-${createdDate.getTime()}`;
   const trainingContent = analysisStrokeType(latestAnalysis);
   const strokeText = strokeDisplayText(trainingContent);
   const sessionName = compactDiarySessionName(trainingContent, createdDate);
@@ -5986,12 +5987,14 @@ function analysisDiaryEntry(options = {}) {
   const fileName = dom.childFileName.textContent && dom.childFileName.textContent !== "Choose video"
     ? dom.childFileName.textContent
     : "Motion analysis session";
+  const externalRawVideoUrl = dom.playerVideoSourceUrl?.value.trim() || "";
+  const videoUrl = externalRawVideoUrl;
   const lowestStage = stages.reduce((weakest, item) => (item.score < weakest.score ? item : weakest), stages[0]);
   const keyframeEntries = stages.map((stage, index) => {
     const representativeFrame = keyframeForStage(stage);
     const exportedImage = rawKeyframeMode
-      ? representativeFrame?.rawFrame || representativeFrame?.rawImage || stage.image
-      : stage.image;
+      ? representativeFrame?.rawFrame || representativeFrame?.rawImage || representativeFrame?.image || stage.image
+      : stage.image || representativeFrame?.image || representativeFrame?.rawFrame || null;
     const representativeIndex = representativeFrame ? keyframes.indexOf(representativeFrame) : index;
     const frameIndex = representativeFrame
       ? clampFrameIndex(keyframeToFrameIndex(representativeFrame), dom.childVideo)
@@ -6034,7 +6037,7 @@ function analysisDiaryEntry(options = {}) {
     };
   });
   return {
-    id: `analysis-${Date.now()}`,
+    id: entryId,
     source: "motion-analysis",
     exportSchemaVersion: 2,
     analysisMode: rawKeyframeMode
@@ -6048,8 +6051,10 @@ function analysisDiaryEntry(options = {}) {
     stroke: trainingContent,
     trainingContent,
     sessionName,
-    videoUrl: "",
-    rawVideoUrl: dom.playerVideoSourceUrl?.value.trim() || "",
+    videoUrl,
+    previewVideoUrl: videoUrl,
+    rawVideoUrl: externalRawVideoUrl || videoUrl,
+    localVideoId: currentPlayerVideoFile ? entryId : "",
     videoName: sessionName,
     sourceVideoName: fileName,
     keyframes: keyframeEntries,
@@ -6088,10 +6093,16 @@ async function exportAnalysisToDiary() {
   if (dom.diaryExportStatus) dom.diaryExportStatus.textContent = "Exporting diary entry...";
   // Re-capture each stage at export time so the ZIP contains the latest manual
   // keypoint edits even when an earlier analysis image cache is stale.
-  await refreshAnalysisStageImages();
+  await refreshAnalysisStageImages(latestAnalysis);
   const entries = readDiaryEntries();
   const fileEntries = await readDiaryFileEntries();
-  const packageEntry = analysisDiaryEntry({ includeImages: true });
+  const createdDate = new Date();
+  const packageEntry = analysisDiaryEntry({ includeImages: true, createdDate });
+  if (currentPlayerVideoFile && packageEntry.localVideoId) {
+    await saveVideoBlob(packageEntry.localVideoId, currentPlayerVideoFile).catch((error) => {
+      console.warn("Diary raw video was not saved locally.", error);
+    });
+  }
   let localEntry = packageEntry;
   let nextEntries = mergeDiaryEntries([localEntry, ...entries], fileEntries).slice(0, 30);
   try {
@@ -6100,7 +6111,7 @@ async function exportAnalysisToDiary() {
     console.warn("Diary export with images failed; retrying without images.", error);
     // Browser storage can reject large data URLs. Keep coordinates locally and
     // retain the full images in packageEntry for the downloadable ZIP.
-    localEntry = analysisDiaryEntry({ includeImages: false });
+    localEntry = analysisDiaryEntry({ includeImages: false, createdDate });
     nextEntries = mergeDiaryEntries([localEntry, ...entries], fileEntries).slice(0, 30);
     writeDiaryEntries(nextEntries);
   }
