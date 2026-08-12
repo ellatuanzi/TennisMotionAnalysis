@@ -126,6 +126,7 @@ const dom = {
   addKeyframeButton: document.querySelector("#addKeyframeButton"),
   updateKeyframeButton: document.querySelector("#updateKeyframeButton"),
   deleteKeyframeButton: document.querySelector("#deleteKeyframeButton"),
+  skipFrameEditingButton: document.querySelector("#skipFrameEditingButton"),
   keyframeLabelEditor: document.querySelector("#keyframeLabelEditor"),
   keyframeLabelInput: document.querySelector("#keyframeLabelInput"),
   saveKeyframeLabelButton: document.querySelector("#saveKeyframeLabelButton"),
@@ -607,7 +608,7 @@ function scrollToMotionAnalysis() {
 
 function workflowHintText(step) {
   if (step === "roi") return "Upload a player video, or use the default PoC video already loaded, then confirm the player crop before detecting keypoints.";
-  if (step === "frames") return "Choose the important swing frames. Use Auto Detect first, then add, update, or delete frames from the video.";
+  if (step === "frames") return "Choose the important swing frames. Use Auto Detect first, then add, update, delete, or skip frame editing and analyze from the selected key frames.";
   if (step === "keypoints") return "Step 3: choose Edit Key Frames Only to fix selected anchors, or Edit Full Video for frame-by-frame corrections. Save anchors before smoothing.";
   if (step === "review") return "Render the review video from the smoothed tracked frames. If it looks wrong, return to Frame Corrections and smooth again.";
   if (isRawKeyframeAnalysisMode()) {
@@ -711,6 +712,7 @@ function updateWorkflow() {
   dom.addKeyframeButton.disabled = !roiRuntime.confirmed;
   dom.updateKeyframeButton.disabled = !roiRuntime.confirmed || !keyframes.length;
   dom.deleteKeyframeButton.disabled = !roiRuntime.confirmed || !keyframes.length;
+  if (dom.skipFrameEditingButton) dom.skipFrameEditingButton.disabled = !roiRuntime.confirmed || !keyframes.length;
   dom.editKeypointsButton.disabled = !roiRuntime.confirmed || !keyframes.length;
   if (dom.editKeyframeAnchorsButton) dom.editKeyframeAnchorsButton.disabled = !roiRuntime.confirmed || !keyframes.length;
   dom.exportVideoButton.disabled = !roiRuntime.confirmed || !keyframes.length || !poseCorrections.size || !keypointTrackingReady;
@@ -7754,6 +7756,7 @@ dom.editKeypointsButton.addEventListener("click", () => {
   openFullVideoEditor();
 });
 dom.fixKeyframesOnlyButton?.addEventListener("click", openSelectedKeyframeEditor);
+dom.skipFrameEditingButton?.addEventListener("click", useRawKeyframesForAnalysis);
 dom.useKeyframesOnlyButton?.addEventListener("click", useRawKeyframesForAnalysis);
 dom.fixFullVideoButton?.addEventListener("click", openFullVideoEditor);
 dom.exportVideoButton.addEventListener("click", exportKeypointVideo);

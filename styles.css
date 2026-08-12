@@ -1903,6 +1903,16 @@ canvas {
   padding: 0 10px;
 }
 
+#skipFrameEditingButton {
+  border: 1px solid rgba(20, 122, 85, 0.28);
+  background: #e8f7ef;
+  color: var(--green);
+}
+
+#skipFrameEditingButton:not(:disabled):hover {
+  background: #dff4e8;
+}
+
 .correction-choice-actions {
   display: flex;
   flex-wrap: wrap;

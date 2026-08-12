@@ -354,11 +354,12 @@
                 <button type="button" id="addKeyframeButton">Add Current Frame</button>
                 <button type="button" id="updateKeyframeButton">Replace Selected With Current Frame</button>
                 <button type="button" id="deleteKeyframeButton">Delete Selected</button>
+                <button type="button" id="skipFrameEditingButton">Skip Frame Editing</button>
               </div>
               <span id="keyframeStatus">Run analysis to generate frames</span>
             </div>
             <p class="keyframe-edit-help" id="keyframeEditHelp">To change a key frame: select its card, move the video to the correct moment, then choose “Replace Selected With Current Frame.”</p>
-            <div class="keyframe-label-editor" id="keyframeLabelEditor">
+            <div class="keyframe-label-editor hidden" id="keyframeLabelEditor">
               <label>
                 Selected key frame label
                 <input id="keyframeLabelInput" type="text" placeholder="Unit Turn, Contact Point, Finish..." />
