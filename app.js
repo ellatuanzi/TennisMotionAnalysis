@@ -465,6 +465,15 @@ function strokeStageTemplate(stroke = dom.strokeType?.value) {
   return serveStageTemplate;
 }
 
+function analysisStrokeType(data = latestAnalysis) {
+  return data?.strokeType || dom.strokeType?.value || "serve";
+}
+
+function strokeDisplayText(stroke = analysisStrokeType()) {
+  const option = Array.from(dom.strokeType?.options || []).find((item) => item.value === stroke);
+  return option?.text || stroke.charAt(0).toUpperCase() + stroke.slice(1);
+}
+
 let latestReport = "";
 let animationFrameId = null;
 let latestAnalysis = null;
@@ -4697,11 +4706,12 @@ function ballTrackingMetrics() {
 }
 
 function analyzeMotion() {
+  const strokeType = dom.strokeType.value;
   const age = Number(dom.playerAge.value || 10);
   const fps = Number(dom.fpsInput.value || 60);
   const distance = Number(dom.courtDistance.value || 6.4);
   const durationFactor = clamp((reliableVideoDuration(dom.childVideo) || 2.2) / 2.8, 0.75, 1.25);
-  const strokeBias = { forehand: 4, backhand: 1, serve: -2, volley: 6 }[dom.strokeType.value] || 0;
+  const strokeBias = { forehand: 4, backhand: 1, serve: -2, volley: 6 }[strokeType] || 0;
 
   const base = clamp(78 + strokeBias - Math.abs(age - 11) * 1.1 + (fps - 60) * 0.025, 64, 94);
   const score = Math.round(base - Math.abs(durationFactor - 1) * 8);
@@ -4715,7 +4725,7 @@ function analyzeMotion() {
   const trackMetrics = trajectorySummary();
   const stageScores = {
     setup: Math.round(clamp(score + 5, 50, 98)),
-    toss: Math.round(clamp(score - (dom.strokeType.value === "serve" ? 4 : 1), 48, 96)),
+    toss: Math.round(clamp(score - (strokeType === "serve" ? 4 : 1), 48, 96)),
     load: Math.round(clamp(score + (shoulderHip - 38) * 0.35, 48, 96)),
     drop: Math.round(clamp(score - 3 + (racketSpeed - 80) * 0.08, 48, 96)),
     acceleration: Math.round(clamp(score - 2 + (racketSpeed - 85) * 0.08, 48, 96)),
@@ -4723,14 +4733,14 @@ function analyzeMotion() {
     deceleration: Math.round(clamp(score - 4 + (knee < 130 ? 2 : -3), 48, 96)),
     finish: Math.round(clamp(score - 2 + (knee < 132 ? 3 : -2), 48, 96)),
   };
-  if (dom.strokeType.value === "forehand") {
+  if (strokeType === "forehand") {
     stageScores.ready = Math.round(clamp(score + 4, 50, 98));
     stageScores.unitturn = Math.round(clamp(score + (shoulderHip - 34) * 0.32, 48, 97));
     stageScores.forward = Math.round(clamp(score - 2 + (racketSpeed - 78) * 0.08, 48, 97));
     stageScores.contact = Math.round(clamp(score + (Number(contactHeight) - 0.56) * 55, 48, 97));
     stageScores.finish = Math.round(clamp(score - 1 + (knee < 134 ? 2 : -2), 48, 96));
   }
-  if (dom.strokeType.value === "backhand") {
+  if (strokeType === "backhand") {
     stageScores.ready = Math.round(clamp(score + 3, 50, 98));
     stageScores.unitturn = Math.round(clamp(score + (shoulderHip - 34) * 0.3, 48, 97));
     stageScores.racketset = Math.round(clamp(score - 1 + (racketSpeed - 78) * 0.06, 48, 97));
@@ -4742,6 +4752,7 @@ function analyzeMotion() {
   }
 
   return {
+    strokeType,
     score,
     racketSpeed,
     ballSpeed,
@@ -4799,7 +4810,7 @@ function normalizeStageName(value = "") {
 function keyframeForStage(stage) {
   const stageKey = normalizeStageName(stage.name || stage.phase || stage.id);
   const stageShortKey = normalizeStageName(stageShortName(stage.name || stage.phase || stage.id));
-  const stageIndex = strokeStageTemplate().findIndex((item) => item.id === stage.id);
+  const stageIndex = strokeStageTemplate(analysisStrokeType()).findIndex((item) => item.id === stage.id);
   return keyframes.find((frame) => frame.phaseId === stage.id)
     || keyframes.find((frame) => normalizeStageName(frame.phase) === stageKey)
     || keyframes.find((frame) => normalizeStageName(frame.phase) === stageShortKey)
@@ -4895,6 +4906,7 @@ function keyframeImageForStage(stage) {
 }
 
 function stageMetricSupport(stage, data) {
+  const stroke = analysisStrokeType(data);
   const forehandMetrics = {
     ready: [
       { label: "Ready balance", value: `${data.stability}/100`, note: "Athletic base before the ball" },
@@ -4964,8 +4976,8 @@ function stageMetricSupport(stage, data) {
       { label: "Foot reset", value: "Review", note: "Feet recover for next ball" },
     ],
   };
-  if (dom.strokeType.value === "forehand") return forehandMetrics[stage.id] || [];
-  if (dom.strokeType.value === "backhand") return backhandMetrics[stage.id] || [];
+  if (stroke === "forehand") return forehandMetrics[stage.id] || [];
+  if (stroke === "backhand") return backhandMetrics[stage.id] || [];
 
   const metrics = {
     setup: [
@@ -5017,8 +5029,9 @@ function buildServeStageDetails(data) {
 }
 
 function buildStrokeStageDetails(data) {
-  const template = strokeStageTemplate();
-  const focusFromNotes = noteFocusItems(referenceBasis().notes || defaultCoachingNotes);
+  const stroke = analysisStrokeType(data);
+  const template = strokeStageTemplate(stroke);
+  const focusFromNotes = noteFocusItems(referenceBasis().notes || defaultCoachingNotes, stroke);
 
   return template.map((stage, index) => {
     const stageScore = data.stageScores?.[stage.id] ?? data.score;
@@ -5077,9 +5090,10 @@ function stageIdealValue(stage) {
     followthrough: "Extend through contact",
     recovery: "Balanced reset for next ball",
   };
-  const ideals = dom.strokeType.value === "forehand"
+  const stroke = analysisStrokeType();
+  const ideals = stroke === "forehand"
     ? forehandIdeals
-    : dom.strokeType.value === "backhand"
+    : stroke === "backhand"
       ? backhandIdeals
       : serveIdeals;
   return ideals[stage.id] || stage.standard;
@@ -5131,12 +5145,13 @@ function renderStageAnalysis(data) {
   const stages = buildStrokeStageDetails(data);
   const lowest = stages.reduce((weakest, item) => (item.score < weakest.score ? item : weakest), stages[0]);
   const strongest = stages.reduce((best, item) => (item.score > best.score ? item : best), stages[0]);
-  const strokeText = dom.strokeType.options[dom.strokeType.selectedIndex].text;
+  const stroke = analysisStrokeType(data);
+  const strokeText = strokeDisplayText(stroke);
 
-  dom.stageAnalysisStatus.textContent = dom.strokeType.value === "forehand"
+  dom.stageAnalysisStatus.textContent = stroke === "forehand"
     ? `Generated from ${data.forehandSwingCount || detectedForehandSwingCount()} identified forehand swing${(data.forehandSwingCount || detectedForehandSwingCount()) === 1 ? "" : "s"}, corrected keypoints, and racket estimate`
-    : "Generated from corrected keypoints, racket estimate, and serve progression notes";
-  dom.overallAnalysisText.textContent = dom.strokeType.value === "forehand"
+    : `Generated from corrected keypoints, racket estimate, and ${strokeText.toLowerCase()} progression notes`;
+  dom.overallAnalysisText.textContent = stroke === "forehand"
     ? `Overall, this forehand set is ${stageQuality(data.score).toLowerCase()} across ${data.forehandSwingCount || detectedForehandSwingCount()} identified swing${(data.forehandSwingCount || detectedForehandSwingCount()) === 1 ? "" : "s"}. The strongest phase is ${stageShortName(strongest.name)}. The main training priority is ${stageShortName(lowest.name).toLowerCase()}: ${lowest.next}`
     : `Overall, this ${strokeText.toLowerCase()} is ${stageQuality(data.score).toLowerCase()} with the strongest stage in ${stageShortName(strongest.name)}. The main training priority is ${stageShortName(lowest.name).toLowerCase()}: ${lowest.next}`;
   renderMechanicsReportTable(stages);
@@ -5235,8 +5250,8 @@ function referenceBasis() {
   return { mode: "video", label: "uploaded reference", notes: "" };
 }
 
-function noteFocusItems(notes) {
-  const stageCount = strokeStageTemplate().length;
+function noteFocusItems(notes, stroke = analysisStrokeType()) {
+  const stageCount = strokeStageTemplate(stroke).length;
   return notes
     .split(/\n+/)
     .map((line) => line.replace(/^[-*\d.\s]+/, "").trim())
@@ -5246,7 +5261,8 @@ function noteFocusItems(notes) {
 }
 
 function buildReport(data) {
-  const strokeText = dom.strokeType.options[dom.strokeType.selectedIndex].text;
+  const stroke = analysisStrokeType(data);
+  const strokeText = strokeDisplayText(stroke);
   const handText = dom.dominantHand.options[dom.dominantHand.selectedIndex].text;
   const basis = referenceBasis();
   const stages = buildStrokeStageDetails(data);
@@ -5262,11 +5278,11 @@ function buildReport(data) {
     "The follow-through finishes a bit short; a longer deceleration path would help.",
   ];
 
-  if (dom.strokeType.value === "serve") {
+  if (stroke === "serve") {
     strengths[1] = "Toss and swing timing are well connected, with good awareness of high contact.";
     weaknesses[0] = "The drive from the legs into trunk rotation is slightly disconnected, limiting serve speed upside.";
   }
-  if (dom.strokeType.value === "forehand") {
+  if (stroke === "forehand") {
     const swingCount = data.forehandSwingCount || detectedForehandSwingCount();
     strengths[0] = `${swingCount} forehand swing${swingCount === 1 ? "" : "s"} were identified and sampled, so the report reflects the pattern across the video rather than one frame.`;
     strengths[1] = "The evaluation focuses on ready position, unit turn, forward swing, contact spacing, and recovery.";
@@ -5374,7 +5390,7 @@ function currentStageSnapshots(data = latestAnalysis) {
       focus: stage.next,
     }));
   }
-  return strokeStageTemplate().map((stage) => {
+  return strokeStageTemplate(analysisStrokeType(data)).map((stage) => {
     const frame = keyframes.find((item) => item.phaseId === stage.id) || keyframes.find((item) => normalizeStageName(item.phase).includes(normalizeStageName(stage.name)));
     return {
       id: stage.id,
@@ -5459,7 +5475,7 @@ async function saveVideoSession() {
     file: fileName,
     videoName: fileName,
     rawVideoUrl: dom.playerVideoSourceUrl?.value.trim() || "",
-    stroke: dom.strokeType.value,
+    stroke: analysisStrokeType(),
     dominantHand: dom.dominantHand.value,
     age: dom.playerAge.value,
     coverImage,
@@ -5632,7 +5648,7 @@ async function saveProgressSession() {
     file: dom.childFileName.textContent,
     videoName: dom.childFileName.textContent,
     rawVideoUrl: dom.playerVideoSourceUrl?.value.trim() || "",
-    stroke: dom.strokeType.value,
+    stroke: analysisStrokeType(latestAnalysis),
     dominantHand: dom.dominantHand.value,
     age: dom.playerAge.value,
     coverImage: stages.find((stage) => stage.image)?.image || captureCurrentVideoStill(),
@@ -5953,8 +5969,8 @@ function analysisDiaryEntry(options = {}) {
   const stages = buildStrokeStageDetails(latestAnalysis);
   const rawKeyframeMode = isRawKeyframeAnalysisMode();
   const createdDate = new Date();
-  const strokeText = dom.strokeType.options[dom.strokeType.selectedIndex].text;
-  const trainingContent = dom.strokeType.value;
+  const trainingContent = analysisStrokeType(latestAnalysis);
+  const strokeText = strokeDisplayText(trainingContent);
   const sessionName = compactDiarySessionName(trainingContent, createdDate);
   const handText = dom.dominantHand.options[dom.dominantHand.selectedIndex].text;
   const fileName = dom.childFileName.textContent && dom.childFileName.textContent !== "Choose video"
@@ -6186,6 +6202,8 @@ function draftPayload() {
       frameIndex: frame.frameIndex,
       note: frame.note,
       image: frame.image,
+      rawFrame: frame.rawFrame || null,
+      rawImage: frame.rawImage || null,
       pose: clonePose(frame.pose || {}),
       poseSource: frame.poseSource,
     })),
@@ -6198,7 +6216,7 @@ function draftPayload() {
       anchors: anchorRecords(),
       lowQualityFrames: lowQualityFrames(10),
       tracking: trajectorySummary(),
-      serveStages: strokeStageTemplate().map((stage) => ({
+      serveStages: strokeStageTemplate(dom.strokeType.value).map((stage) => ({
         id: stage.id,
         name: stage.name,
         standard: stage.standard,
@@ -6541,7 +6559,7 @@ function canvasLooksBlank(canvas) {
   return sampled > 0 && informative / sampled < 0.015;
 }
 
-async function refreshAnalysisStageImages() {
+async function refreshAnalysisStageImages(data = latestAnalysis) {
   analysisStageImageCache.clear();
   if (!dom.childVideo || !keyframes.length) return;
 
@@ -6554,7 +6572,7 @@ async function refreshAnalysisStageImages() {
   const fps = Math.max(1, Number(dom.fpsInput?.value || 60));
   video.pause();
 
-  for (const stage of strokeStageTemplate()) {
+  for (const stage of strokeStageTemplate(analysisStrokeType(data))) {
     const match = keyframeForStage(stage);
     if (!match) continue;
 
@@ -7688,9 +7706,9 @@ async function runAnalysis() {
   setStatus("Analyzing", "running");
   dom.analyzeButton.disabled = true;
 
-  await refreshAnalysisStageImages();
-  await new Promise((resolve) => setTimeout(resolve, 650));
   latestAnalysis = analyzeMotion();
+  await refreshAnalysisStageImages(latestAnalysis);
+  await new Promise((resolve) => setTimeout(resolve, 650));
   updateMetrics(latestAnalysis);
   buildReport(latestAnalysis);
   motionAnalysisReady = true;
